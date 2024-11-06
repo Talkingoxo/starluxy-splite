@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -13,7 +12,7 @@
             // Generate a unique ID for the redirect entry
             const uniqueId = 'redirect-' + Math.random().toString(36).substr(2, 9);
 
-            // Here you should call a Cloudflare Worker endpoint to save the URLs
+            // Send POST request to create the redirect in the Worker
             const response = await fetch('https://your-worker-name.workers.dev/create', {
                 method: 'POST',
                 headers: {
