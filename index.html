@@ -1,0 +1,43 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Link Generator</title>
+    <script>
+        async function createRedirect() {
+            const url1 = document.getElementById('url1').value;
+            const url2 = document.getElementById('url2').value;
+
+            // Generate a unique ID for the redirect entry
+            const uniqueId = 'redirect-' + Math.random().toString(36).substr(2, 9);
+
+            // Here you should call a Cloudflare Worker endpoint to save the URLs
+            const response = await fetch('https://your-worker-name.workers.dev/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ id: uniqueId, url1: url1, url2: url2 })
+            });
+
+            if (response.ok) {
+                const resultLink = `https://your-worker-name.workers.dev/redirect?id=${uniqueId}`;
+                document.getElementById('result').innerHTML = `<p>Generated Link: <a href="${resultLink}" target="_blank">${resultLink}</a></p>`;
+            } else {
+                document.getElementById('result').innerHTML = `<p>Error creating redirect.</p>`;
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>Link Generator</h1>
+    <form onsubmit="createRedirect(); return false;">
+        <input type="url" id="url1" placeholder="Enter first URL" required>
+        <input type="url" id="url2" placeholder="Enter second URL" required>
+        <button type="submit">Generate Link</button>
+    </form>
+    <div id="result"></div>
+</body>
+</html>
