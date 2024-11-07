@@ -3,40 +3,115 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Link Generator</title>
-    <script>
-        async function createRedirect() {
-            const url1 = document.getElementById('url1').value;
-            const url2 = document.getElementById('url2').value;
-
-            // Generate a unique ID for the redirect entry
-            const uniqueId = 'redirect-' + Math.random().toString(36).substr(2, 9);
-
-            // Send POST request to create the redirect in the Worker
-            const response = await fetch('https://your-worker-name.workers.dev/create', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ id: uniqueId, url1: url1, url2: url2 })
-            });
-
-            if (response.ok) {
-                const resultLink = `https://your-worker-name.workers.dev/redirect?id=${uniqueId}`;
-                document.getElementById('result').innerHTML = `<p>Generated Link: <a href="${resultLink}" target="_blank">${resultLink}</a></p>`;
-            } else {
-                document.getElementById('result').innerHTML = `<p>Error creating redirect.</p>`;
-            }
+    <title>Split URL Generator</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
         }
-    </script>
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        input[type="url"] {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #0070f3;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        button:hover {
+            background: #0051cc;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #f8f9fa;
+            word-break: break-all;
+        }
+        .hide {
+            display: none;
+        }
+    </style>
 </head>
 <body>
-    <h1>Link Generator</h1>
-    <form onsubmit="createRedirect(); return false;">
-        <input type="url" id="url1" placeholder="Enter first URL" required>
-        <input type="url" id="url2" placeholder="Enter second URL" required>
-        <button type="submit">Generate Link</button>
-    </form>
-    <div id="result"></div>
+    <div class="container">
+        <h1>Split URL Generator</h1>
+        <form id="urlForm">
+            <div>
+                <label for="url1">First Product URL:</label>
+                <input type="url" id="url1" required placeholder="https://example.com/product1">
+            </div>
+            <div>
+                <label for="url2">Second Product URL:</label>
+                <input type="url" id="url2" required placeholder="https://example.com/product2">
+            </div>
+            <button type="submit">Generate Split URL</button>
+        </form>
+        <div id="result" class="hide">
+            <h3>Your Split URL:</h3>
+            <p id="splitUrl"></p>
+        </div>
+    </div>
+
+    <script>
+        // Generate a random campaign ID
+        function generateId() {
+            return Math.random().toString(36).substring(2, 10);
+        }
+
+        document.getElementById('urlForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const url1 = document.getElementById('url1').value;
+            const url2 = document.getElementById('url2').value;
+            const campaignId = generateId();
+            
+            try {
+                // Replace with your worker URL
+                const response = await fetch('https://your-worker-domain.workers.dev/save-campaign', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        campaignId,
+                        url1,
+                        url2
+                    })
+                });
+                
+                if (response.ok) {
+                    // Replace with your redirect worker domain
+                    const splitUrl = `https://your-redirect-worker.workers.dev/${campaignId}`;
+                    document.getElementById('splitUrl').textContent = splitUrl;
+                    document.getElementById('result').classList.remove('hide');
+                } else {
+                    alert('Error creating split URL. Please try again.');
+                }
+            } catch (error) {
+                alert('Error creating split URL. Please try again.');
+                console.error('Error:', error);
+            }
+        });
+    </script>
 </body>
 </html>
