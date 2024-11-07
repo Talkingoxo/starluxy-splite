@@ -101,7 +101,7 @@
                 
                 if (response.ok) {
                     // Replace with your redirect worker domain
-                    const splitUrl = `https://your-redirect-worker.workers.dev/${campaignId}`;
+                    const splitUrl = `https://redirecting-api.aa4530607.workers.dev//${campaignId}`;
                     document.getElementById('splitUrl').textContent = splitUrl;
                     document.getElementById('result').classList.remove('hide');
                 } else {
