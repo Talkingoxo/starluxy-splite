@@ -2,18 +2,80 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Split URL Generator</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        input[type="url"] {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #0070f3;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        button:hover {
+            background: #0051cc;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #f8f9fa;
+            word-break: break-all;
+        }
+        .hide {
+            display: none;
+        }
+        #debug {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
 <body>
     <div class="container">
         <h1>Split URL Generator</h1>
         <form id="urlForm">
             <div>
                 <label for="url1">First Product URL:</label>
-                <input type="url" id="url1" required placeholder="https://example.com/product1">
+                <input type="url" id="url1" required 
+                       placeholder="https://example.com/product1"
+                       value="https://www.starluxy.com/products/filtraxy-filter">
             </div>
             <div>
                 <label for="url2">Second Product URL:</label>
-                <input type="url" id="url2" required placeholder="https://example.com/product2">
+                <input type="url" id="url2" required 
+                       placeholder="https://example.com/product2"
+                       value="https://www.starluxy.com/products/purain-hydration-filter-2">
             </div>
             <button type="submit">Generate Split URL</button>
         </form>
@@ -21,12 +83,17 @@
             <h3>Your Split URL:</h3>
             <p id="splitUrl"></p>
         </div>
+        <div id="debug"></div>
     </div>
 
     <script>
-        // Generate a random campaign ID
         function generateId() {
             return Math.random().toString(36).substring(2, 10);
+        }
+
+        function log(message) {
+            const debug = document.getElementById('debug');
+            debug.textContent += new Date().toISOString() + ': ' + message + '\n';
         }
 
         document.getElementById('urlForm').addEventListener('submit', async function(e) {
@@ -36,9 +103,22 @@
             const url2 = document.getElementById('url2').value;
             const campaignId = generateId();
             
+            // Clear previous debug info
+            document.getElementById('debug').textContent = '';
+            
+            log('Starting request...');
+            log(`Campaign ID: ${campaignId}`);
+            log(`URL1: ${url1}`);
+            log(`URL2: ${url2}`);
+
+            // Your actual worker URLs
+            const API_WORKER_URL = 'https://redirecting-api.aa4530607.workers.dev/save-campaign';
+            const REDIRECT_WORKER_URL = 'https://starluxy-splite.aa4530607.workers.dev';
+            
             try {
-                // Replace with your worker URL
-                const response = await fetch('https://your-worker-domain.workers.dev/save-campaign', {
+                log('Sending request to: ' + API_WORKER_URL);
+                
+                const response = await fetch(API_WORKER_URL, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -50,16 +130,24 @@
                     })
                 });
                 
+                log(`Response status: ${response.status}`);
+                
                 if (response.ok) {
-                    // Replace with your redirect worker domain
-                    const splitUrl = `https://redirecting-api.aa4530607.workers.dev//${campaignId}`;
+                    const responseData = await response.json();
+                    log('Response data: ' + JSON.stringify(responseData));
+                    
+                    const splitUrl = `${REDIRECT_WORKER_URL}/${campaignId}`;
                     document.getElementById('splitUrl').textContent = splitUrl;
                     document.getElementById('result').classList.remove('hide');
+                    log('Success! Split URL generated: ' + splitUrl);
                 } else {
-                    alert('Error creating split URL. Please try again.');
+                    const errorText = await response.text();
+                    log('Error response: ' + errorText);
+                    alert('Error creating split URL. Check debug info below.');
                 }
             } catch (error) {
-                alert('Error creating split URL. Please try again.');
+                log('Error: ' + error.message);
+                alert('Error creating split URL. Check debug info below.');
                 console.error('Error:', error);
             }
         });
