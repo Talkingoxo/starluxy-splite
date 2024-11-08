@@ -17,6 +17,10 @@ async function apiCall(endpoint, options = {}) {
     return response.json();
 }
 
+function toggleModal(show) {
+    document.getElementById('deleteModal').classList.toggle('active', show);
+}
+
 // Auth
 function login(password) {
     authToken = password;
@@ -54,6 +58,9 @@ async function handleSubmit(e) {
         
         // Immediately add new URL to list
         const urlList = document.getElementById('urlList');
+        if (urlList.firstChild?.tagName === 'P') {
+            urlList.innerHTML = ''; // Clear "No URLs yet" message
+        }
         const newItem = createUrlItem({
             id: data.campaignId,
             ...data
@@ -95,10 +102,8 @@ function createUrlItem(campaign) {
     };
 
     item.querySelector('.delete-btn').onclick = () => {
-        if (confirm('Delete this URL?')) {
-            deleteUrl(campaign.id);
-            item.remove();
-        }
+        deleteId = campaign.id;
+        toggleModal(true);
     };
 
     return item;
@@ -111,29 +116,45 @@ async function loadUrls() {
         list.innerHTML = '';
         
         const sortedData = data.sort((a, b) => b.id.localeCompare(a.id));
-        sortedData.forEach(campaign => list.appendChild(createUrlItem(campaign)));
         
-        if (data.length === 0) {
-            list.innerHTML = '<p>No URLs yet</p>';
+        if (sortedData.length === 0) {
+            list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
+        } else {
+            sortedData.forEach(campaign => list.appendChild(createUrlItem(campaign)));
         }
     } catch (err) {
         console.error(err);
     }
 }
 
-async function deleteUrl(id) {
+async function deleteCampaign() {
+    if (!deleteId) return;
+    
     try {
         await apiCall('/delete-campaign', {
             method: 'POST',
-            body: JSON.stringify({ campaignId: id })
+            body: JSON.stringify({ campaignId: deleteId })
         });
+        
+        const item = document.querySelector(`[data-id="${deleteId}"]`);
+        if (item) item.remove();
+        
+        // Check if we need to show "No URLs" message
+        const list = document.getElementById('urlList');
+        if (!list.children.length) {
+            list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
+        }
     } catch (err) {
         console.error(err);
     }
+    
+    toggleModal(false);
+    deleteId = null;
 }
 
 // Initialize
 document.getElementById('urlForm').onsubmit = handleSubmit;
+document.getElementById('confirmDelete').onclick = deleteCampaign;
 document.getElementById('loginForm').onsubmit = (e) => {
     e.preventDefault();
     login(document.getElementById('password').value);
