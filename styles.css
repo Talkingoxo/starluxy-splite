@@ -7,6 +7,7 @@
     --border: #404040;
     --error: #ff4444;
     --success: #00c853;
+    --sidebar-width: 350px;
 }
 
 * { 
@@ -20,14 +21,13 @@ body {
     background: var(--bg-primary);
     color: var(--text-primary);
     line-height: 1.5;
-    padding: 20px;
 }
 
-/* Layout */
-.container {
-    max-width: 775px;
-    margin: 0 auto;
-    position: relative;
+.main-content {
+    margin-left: var(--sidebar-width);
+    padding: 20px;
+    display: flex;
+    justify-content: center;
 }
 
 .panel {
@@ -35,9 +35,10 @@ body {
     padding: 20px;
     border-radius: 8px;
     border: 1px solid var(--border);
+    width: 100%;
+    max-width: 600px;
 }
 
-/* Form Elements */
 input, textarea {
     width: 100%;
     padding: 8px 12px;
@@ -58,38 +59,18 @@ button {
     font-size: 14px;
 }
 
-/* Sidebar */
 .sidebar {
     position: fixed;
     top: 0;
-    left: -350px;
-    width: 350px;
+    left: 0;
+    width: var(--sidebar-width);
     height: 100vh;
     background: var(--bg-secondary);
-    transition: 0.3s ease;
-    z-index: 1000;
     padding: 20px;
     box-shadow: 2px 0 5px rgba(0,0,0,0.2);
     overflow-y: auto;
 }
 
-.sidebar.active {
-    left: 0;
-}
-
-.burger-icon {
- position: fixed;
-    top: 22px;
-    left: 20px;
-    z-index: 1003;
-    cursor: pointer;
-}
-
-.burger-icon i {
-    font-size: 24px;
-}
-
-/* URL Items */
 .url-item {
     background: var(--bg-primary);
     margin: 12px 0;
@@ -135,7 +116,6 @@ button {
     color: var(--error);
 }
 
-/* Modal */
 .modal {
     display: none;
     position: fixed;
@@ -165,7 +145,6 @@ button {
     margin-top: 20px;
 }
 
-/* Auth Elements */
 #loginContainer {
     max-width: 400px;
     margin: 100px auto;
@@ -187,7 +166,6 @@ button {
     background: #ff2222;
 }
 
-/* Utilities */
 .warning {
     color: var(--error);
     margin: 10px 0;
