@@ -1,3 +1,4 @@
+const $ = id => document.getElementById(id);
 let authToken = localStorage.getItem('authToken'), deleteId = null;
 
 const API = {
@@ -5,10 +6,8 @@ const API = {
     REDIRECT: 'https://starluxy-splite.aa4530607.workers.dev'
 };
 
-const $ = id => document.getElementById(id);
-
 async function apiCall(endpoint, options = {}) {
-    const res = await fetch(`${API.URL}${endpoint}`, {
+    const response = await fetch(`${API.URL}${endpoint}`, {
         ...options,
         headers: {
             'Content-Type': 'application/json',
@@ -16,63 +15,65 @@ async function apiCall(endpoint, options = {}) {
             ...options.headers
         }
     });
-    if (!res.ok) throw new Error('API failed');
-    return res.json();
+    if (!response.ok) throw new Error('API failed');
+    return response.json();
 }
 
-function toggleUI(isLogin) {
-    $('loginContainer').style.display = isLogin ? 'block' : 'none';
-    $('appContainer').style.display = isLogin ? 'none' : 'block';
+function displayAuth(isAuth) {
+    $('loginContainer').style.display = isAuth ? 'none' : 'block';
+    $('appContainer').style.display = isAuth ? 'block' : 'none';
+}
+
+function toggleSidebar() {
+    $('sidebar').classList.toggle('active');
 }
 
 function logout() {
     authToken = null;
     localStorage.removeItem('authToken');
-    toggleUI(true);
+    displayAuth(false);
 }
 
 async function handleSubmit(e) {
     e.preventDefault();
     const form = e.target;
-    const {url1, url2, name, description} = form;
+    const url1 = form.url1.value;
+    const url2 = form.url2.value;
     const warning = form.querySelector('.warning');
 
-    if (url1.value === url2.value) {
+    if (url1 === url2) {
         warning.style.display = 'block';
         return;
     }
 
-    try {
-        const data = {
-            campaignId: Date.now().toString(36) + Math.random().toString(36).substr(2),
-            name: name.value,
-            url1: url1.value,
-            url2: url2.value,
-            description: description.value
-        };
+    const data = {
+        campaignId: Date.now().toString(36) + Math.random().toString(36).substr(2),
+        name: form.name.value,
+        url1, url2,
+        description: form.description.value
+    };
 
+    try {
         await apiCall('/save-campaign', {
             method: 'POST',
             body: JSON.stringify(data)
         });
-
+        form.reset();
+        warning.style.display = 'none';
+        
         const urlList = $('urlList');
         if (urlList.firstChild?.tagName === 'P') urlList.innerHTML = '';
         urlList.insertBefore(createUrlItem({ id: data.campaignId, ...data }), urlList.firstChild);
-        
-        form.reset();
-        warning.style.display = 'none';
     } catch (err) {
         console.error(err);
     }
 }
 
 function createUrlItem(campaign) {
+    const splitUrl = `${API.REDIRECT}/${campaign.id}`;
     const item = document.createElement('div');
     item.className = 'url-item';
     item.dataset.id = campaign.id;
-    
-    const splitUrl = `${API.REDIRECT}/${campaign.id}`;
     
     item.innerHTML = `
         <div class="url-header">
@@ -112,14 +113,15 @@ async function loadUrls() {
     try {
         const data = await apiCall('/list-campaigns');
         const list = $('urlList');
-        list.innerHTML = !data.length ? 
-            '<p style="color: var(--text-secondary);">No split URLs created yet.</p>' :
-            '';
-            
-        if (data.length) {
-            data.sort((a, b) => b.id.localeCompare(a.id))
-                .forEach(campaign => list.appendChild(createUrlItem(campaign)));
+        list.innerHTML = '';
+        
+        if (!data.length) {
+            list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
+            return;
         }
+
+        data.sort((a, b) => b.id.localeCompare(a.id))
+            .forEach(campaign => list.appendChild(createUrlItem(campaign)));
     } catch (err) {
         console.error(err);
     }
@@ -150,19 +152,17 @@ async function deleteCampaign() {
     deleteId = null;
 }
 
-// Setup warning
 const warning = document.createElement('p');
 warning.className = 'warning';
+warning.style.cssText = 'color: #ff4444; margin: 10px 0; display: none;';
 warning.textContent = 'Links Can\'t be the same';
 $('urlForm').insertBefore(warning, $('urlForm').querySelector('button'));
 
-// Event listeners
-$('urlForm').addEventListener('input', e => {
+$('urlForm').addEventListener('input', function(e) {
     if (e.target.type === 'url') {
-        const warning = e.currentTarget.querySelector('.warning');
-        if (warning.style.display === 'block') {
-            const form = e.currentTarget;
-            if (form.url1.value !== form.url2.value) warning.style.display = 'none';
+        const warning = this.querySelector('.warning');
+        if (warning.style.display === 'block' && this.url1.value !== this.url2.value) {
+            warning.style.display = 'none';
         }
     }
 });
@@ -173,10 +173,9 @@ $('loginForm').onsubmit = e => {
     e.preventDefault();
     authToken = $('password').value;
     localStorage.setItem('authToken', authToken);
-    toggleUI(false);
+    displayAuth(true);
     loadUrls();
 };
 
-// Init
-toggleUI(!authToken);
+displayAuth(!!authToken);
 if (authToken) loadUrls();
