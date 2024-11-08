@@ -23,9 +23,11 @@ body {
     padding: 20px;
 }
 
+/* Layout */
 .container {
     max-width: 1000px;
     margin: 0 auto;
+    margin-left: 60px;
     position: relative;
 }
 
@@ -36,6 +38,7 @@ body {
     border: 1px solid var(--border);
 }
 
+/* Form Elements */
 input, textarea {
     width: 100%;
     padding: 8px 12px;
@@ -56,18 +59,18 @@ button {
     font-size: 14px;
 }
 
-/* Sidebar Styles */
+/* Sidebar */
 .sidebar {
     position: fixed;
     top: 0;
-    left: -400px;
-    width: 400px;
+    left: -350px;
+    width: 350px;
     height: 100vh;
     background: var(--bg-secondary);
-    transition: left 0.3s ease;
+    transition: 0.3s ease;
+    z-index: 1000;
     padding: 20px;
     box-shadow: 2px 0 5px rgba(0,0,0,0.2);
-    z-index: 1000;
     overflow-y: auto;
 }
 
@@ -75,19 +78,19 @@ button {
     left: 0;
 }
 
-.sidebar-toggle {
+.burger-icon {
     position: fixed;
     top: 20px;
     left: 20px;
     z-index: 1001;
     cursor: pointer;
-    width: 40px;
-    height: 40px;
     background: var(--bg-secondary);
+    padding: 10px;
     border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+}
+
+.burger-icon i {
+    font-size: 24px;
 }
 
 /* URL Items */
@@ -96,14 +99,13 @@ button {
     margin: 12px 0;
     border-radius: 4px;
     border: 1px solid var(--border);
-    position: relative;
 }
 
 .url-header {
     padding: 12px;
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
 }
 
 .url-content {
@@ -118,14 +120,17 @@ button {
 
 .url-actions {
     display: flex;
-    gap: 12px;
+    gap: 10px;
+    align-items: center;
 }
 
+.url-icon, 
 .url-actions i {
     cursor: pointer;
-    padding: 4px;
+    color: var(--text-secondary);
 }
 
+.url-icon:hover,
 .fa-link:hover {
     color: var(--accent);
 }
@@ -134,27 +139,7 @@ button {
     color: var(--error);
 }
 
-/* Latest URL Section */
-.latest-url {
-    margin: 10px 0;
-    padding: 8px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.copy-latest {
-    cursor: pointer;
-    padding: 8px;
-    background: var(--bg-secondary);
-    border-radius: 4px;
-}
-
-.copy-latest:hover {
-    color: var(--accent);
-}
-
-/* Modal Styles */
+/* Modal */
 .modal {
     display: none;
     position: fixed;
@@ -184,7 +169,7 @@ button {
     margin-top: 20px;
 }
 
-/* Login Page */
+/* Auth Elements */
 #loginContainer {
     max-width: 400px;
     margin: 100px auto;
@@ -198,10 +183,15 @@ button {
     position: fixed;
     top: 20px;
     right: 20px;
+    z-index: 1001;
     background: var(--error);
 }
 
-/* Utility Classes */
+.logout-btn:hover {
+    background: #ff2222;
+}
+
+/* Utilities */
 .warning {
     color: var(--error);
     margin: 10px 0;
