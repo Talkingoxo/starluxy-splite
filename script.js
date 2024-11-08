@@ -3,7 +3,6 @@ const API_URL = 'https://redirecting-api.aa4530607.workers.dev';
 const REDIRECT_URL = 'https://starluxy-splite.aa4530607.workers.dev';
 let deleteId = null;
 
-// Core Functions
 async function apiCall(endpoint, options = {}) {
     const response = await fetch(`${API_URL}${endpoint}`, {
         ...options,
@@ -21,7 +20,6 @@ function toggleModal(show) {
     document.getElementById('deleteModal').classList.toggle('active', show);
 }
 
-// Auth
 function login(password) {
     authToken = password;
     localStorage.setItem('authToken', authToken);
@@ -37,15 +35,22 @@ function logout() {
     document.getElementById('appContainer').style.display = 'none';
 }
 
-// URL Management
 async function handleSubmit(e) {
     e.preventDefault();
     const form = e.target;
+    const url1 = form.url1.value;
+    const url2 = form.url2.value;
+
+    // Check if URLs are different
+    if (url1 === url2) {
+        return;
+    }
+
     const data = {
         campaignId: Date.now().toString(36) + Math.random().toString(36).substr(2),
         name: form.name.value,
-        url1: form.url1.value,
-        url2: form.url2.value,
+        url1: url1,
+        url2: url2,
         description: form.description.value
     };
 
@@ -56,10 +61,9 @@ async function handleSubmit(e) {
         });
         form.reset();
         
-        // Immediately add new URL to list
         const urlList = document.getElementById('urlList');
         if (urlList.firstChild?.tagName === 'P') {
-            urlList.innerHTML = ''; // Clear "No URLs yet" message
+            urlList.innerHTML = '';
         }
         const newItem = createUrlItem({
             id: data.campaignId,
@@ -74,6 +78,7 @@ async function handleSubmit(e) {
 function createUrlItem(campaign) {
     const item = document.createElement('div');
     item.className = 'url-item';
+    item.dataset.id = campaign.id;
     
     item.innerHTML = `
         <div class="url-header">
@@ -135,14 +140,15 @@ async function deleteCampaign() {
             method: 'POST',
             body: JSON.stringify({ campaignId: deleteId })
         });
-        
-        const item = document.querySelector(`[data-id="${deleteId}"]`);
-        if (item) item.remove();
-        
-        // Check if we need to show "No URLs" message
-        const list = document.getElementById('urlList');
-        if (!list.children.length) {
-            list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
+
+        const itemToRemove = document.querySelector(`[data-id="${deleteId}"]`);
+        if (itemToRemove) {
+            itemToRemove.remove();
+            
+            const list = document.getElementById('urlList');
+            if (!list.children.length) {
+                list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
+            }
         }
     } catch (err) {
         console.error(err);
@@ -151,6 +157,13 @@ async function deleteCampaign() {
     toggleModal(false);
     deleteId = null;
 }
+
+// URL validation
+document.getElementById('urlForm').addEventListener('input', function(e) {
+    const url1 = this.url1.value;
+    const url2 = this.url2.value;
+    this.querySelector('button[type="submit"]').disabled = url1 === url2;
+});
 
 // Initialize
 document.getElementById('urlForm').onsubmit = handleSubmit;
