@@ -24,10 +24,6 @@ function displayAuth(isAuth) {
     $('appContainer').style.display = isAuth ? 'block' : 'none';
 }
 
-function toggleSidebar() {
-    $('sidebar').classList.toggle('active');
-}
-
 function logout() {
     authToken = null;
     localStorage.removeItem('authToken');
@@ -93,12 +89,10 @@ function createUrlItem(campaign) {
     `;
 
     const content = item.querySelector('.url-content');
-    const toggleBtn = item.querySelector('.toggle-btn');
-
-    toggleBtn.onclick = () => {
+    item.querySelector('.toggle-btn').onclick = () => {
         content.classList.toggle('active');
-        toggleBtn.classList.toggle('fa-plus');
-        toggleBtn.classList.toggle('fa-minus');
+        event.target.classList.toggle('fa-plus');
+        event.target.classList.toggle('fa-minus');
     };
 
     item.querySelector('.delete-btn').onclick = () => {
@@ -113,15 +107,14 @@ async function loadUrls() {
     try {
         const data = await apiCall('/list-campaigns');
         const list = $('urlList');
-        list.innerHTML = '';
+        list.innerHTML = !data.length ? 
+            '<p style="color: var(--text-secondary);">No split URLs created yet.</p>' : 
+            '';
         
-        if (!data.length) {
-            list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
-            return;
+        if (data.length) {
+            data.sort((a, b) => b.id.localeCompare(a.id))
+                .forEach(campaign => list.appendChild(createUrlItem(campaign)));
         }
-
-        data.sort((a, b) => b.id.localeCompare(a.id))
-            .forEach(campaign => list.appendChild(createUrlItem(campaign)));
     } catch (err) {
         console.error(err);
     }
@@ -158,10 +151,10 @@ warning.style.cssText = 'color: #ff4444; margin: 10px 0; display: none;';
 warning.textContent = 'Links Can\'t be the same';
 $('urlForm').insertBefore(warning, $('urlForm').querySelector('button'));
 
-$('urlForm').addEventListener('input', function(e) {
+$('urlForm').addEventListener('input', e => {
     if (e.target.type === 'url') {
-        const warning = this.querySelector('.warning');
-        if (warning.style.display === 'block' && this.url1.value !== this.url2.value) {
+        const warning = e.target.form.querySelector('.warning');
+        if (warning.style.display === 'block' && e.target.form.url1.value !== e.target.form.url2.value) {
             warning.style.display = 'none';
         }
     }
