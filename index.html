@@ -63,6 +63,23 @@
         .url-icon:hover {
             color: var(--accent);
         }
+
+        .logout-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1001;
+            background: #ff4444;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .logout-btn:hover {
+            background: #ff2222;
+        }
     </style>
 </head>
 <body>
@@ -75,6 +92,8 @@
     </div>
 
     <div id="appContainer" style="display: none;">
+        <button class="logout-btn" onclick="logout()">Logout</button>
+        
         <div class="burger-icon" onclick="toggleSidebar()">
             <i class="fas fa-bars"></i>
         </div>
@@ -123,11 +142,6 @@
         </div>
     </div>
 
-    <script>
-        function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('active');
-        }
-    </script>
     <script src="script.js"></script>
 </body>
 </html>
