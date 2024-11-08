@@ -1,13 +1,16 @@
 let authToken = localStorage.getItem('authToken');
+let deleteId = null;
+let latestUrl = '';
+
 const API = {
     URL: 'https://redirecting-api.aa4530607.workers.dev',
     REDIRECT: 'https://starluxy-splite.aa4530607.workers.dev'
 };
-let deleteId = null;
 
 const DOM = {
     get: id => document.getElementById(id),
-    create: tag => document.createElement(tag)
+    create: tag => document.createElement(tag),
+    query: selector => document.querySelector(selector)
 };
 
 async function apiCall(endpoint, options = {}) {
@@ -22,9 +25,45 @@ async function apiCall(endpoint, options = {}) {
     if (!response.ok) throw new Error('API failed');
     return response.json();
 }
+
 function toggleModal(show) {
     DOM.get('deleteModal').classList.toggle('active', show);
-    deleteId = show ? deleteId : null;  // Clear deleteId if closing
+    deleteId = show ? deleteId : null;
+}
+
+function toggleSidebar() {
+    DOM.query('.sidebar').classList.toggle('active');
+}
+
+function createUrlItem(campaign) {
+    const item = DOM.create('div');
+    item.className = 'url-item';
+    item.dataset.id = campaign.id;
+    
+    const splitUrl = `${API.REDIRECT}/${campaign.id}`;
+    
+    item.innerHTML = `
+        <div class="url-header">
+            <span>${campaign.name}</span>
+            <div class="url-actions">
+                <i class="fas fa-link" title="Copy URL"></i>
+                <i class="fas fa-trash" title="Delete"></i>
+            </div>
+        </div>
+        <div class="url-content">
+            ${campaign.description ? `<p><strong>Description:</strong> ${campaign.description}</p>` : ''}
+            <p><strong>URL 1:</strong> ${campaign.url1}</p>
+            <p><strong>URL 2:</strong> ${campaign.url2}</p>
+        </div>
+    `;
+
+    item.querySelector('.fa-link').onclick = () => copyToClipboard(splitUrl);
+    item.querySelector('.fa-trash').onclick = () => {
+        deleteId = campaign.id;
+        toggleModal(true);
+    };
+
+    return item;
 }
 
 async function handleSubmit(e) {
@@ -39,8 +78,9 @@ async function handleSubmit(e) {
         return;
     }
 
+    const campaignId = Date.now().toString(36) + Math.random().toString(36).substr(2);
     const data = {
-        campaignId: Date.now().toString(36) + Math.random().toString(36).substr(2),
+        campaignId,
         name: form.name.value,
         url1, url2,
         description: form.description.value
@@ -51,54 +91,21 @@ async function handleSubmit(e) {
             method: 'POST',
             body: JSON.stringify(data)
         });
+
+        // Update latest URL and reset form
+        latestUrl = `${API.REDIRECT}/${campaignId}`;
         form.reset();
         warning.style.display = 'none';
         
+        // Add new item to list
         const urlList = DOM.get('urlList');
-        if (urlList.firstChild?.tagName === 'P') urlList.innerHTML = '';
-        urlList.insertBefore(createUrlItem({ id: data.campaignId, ...data }), urlList.firstChild);
+        if (urlList.firstChild?.tagName === 'P') {
+            urlList.innerHTML = '';
+        }
+        urlList.insertBefore(createUrlItem({ id: campaignId, ...data }), urlList.firstChild);
     } catch (err) {
         console.error(err);
     }
-}
-
-function createUrlItem(campaign) {
-    const item = DOM.create('div');
-    item.className = 'url-item';
-    item.dataset.id = campaign.id;
-    
-    item.innerHTML = `
-        <div class="url-header">
-            <span>${campaign.name}</span>
-            <div>
-                <i class="fas fa-plus toggle-btn"></i>
-                <i class="fas fa-trash delete-btn"></i>
-            </div>
-        </div>
-        <div class="url-content">
-            <p>
-                <strong>Split URL:</strong> 
-                ${API.REDIRECT}/${campaign.id}
-                <button onclick="navigator.clipboard.writeText('${API.REDIRECT}/${campaign.id}')">Copy</button>
-            </p>
-            ${campaign.description ? `<p><strong>Description:</strong> ${campaign.description}</p>` : ''}
-            <p><strong>URL 1:</strong> ${campaign.url1}</p>
-            <p><strong>URL 2:</strong> ${campaign.url2}</p>
-        </div>
-    `;
-
-    item.querySelector('.toggle-btn').onclick = (e) => {
-        item.querySelector('.url-content').classList.toggle('active');
-        e.target.classList.toggle('fa-plus');
-        e.target.classList.toggle('fa-minus');
-    };
-
-    item.querySelector('.delete-btn').onclick = () => {
-        deleteId = campaign.id;
-        DOM.get('deleteModal').classList.toggle('active', true);
-    };
-
-    return item;
 }
 
 async function loadUrls() {
@@ -112,8 +119,14 @@ async function loadUrls() {
             return;
         }
 
+        // Sort by newest first
         data.sort((a, b) => b.id.localeCompare(a.id))
             .forEach(campaign => list.appendChild(createUrlItem(campaign)));
+
+        // Set latest URL if exists
+        if (data[0]) {
+            latestUrl = `${API.REDIRECT}/${data[0].id}`;
+        }
     } catch (err) {
         console.error(err);
     }
@@ -131,6 +144,7 @@ async function deleteCampaign() {
         const itemToRemove = document.querySelector(`[data-id="${deleteId}"]`);
         if (itemToRemove) {
             itemToRemove.remove();
+            
             const list = DOM.get('urlList');
             if (!list.children.length) {
                 list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
@@ -140,18 +154,18 @@ async function deleteCampaign() {
         console.error(err);
     }
     
-    DOM.get('deleteModal').classList.toggle('active', false);
-    deleteId = null;
+    toggleModal(false);
 }
 
-// Add warning element to form
-const warningEl = DOM.create('p');
-warningEl.className = 'warning';
-warningEl.style.cssText = 'color: #ff4444; margin: 10px 0; display: none;';
-warningEl.textContent = 'Links Can\'t be the same';
-DOM.get('urlForm').insertBefore(warningEl, DOM.get('urlForm').querySelector('button'));
+async function copyToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (err) {
+        console.error(err);
+    }
+}
 
-// Watch for URL changes to hide warning
+// URL change handler
 DOM.get('urlForm').addEventListener('input', function(e) {
     if (e.target.type === 'url') {
         const warning = this.querySelector('.warning');
@@ -165,28 +179,38 @@ DOM.get('urlForm').addEventListener('input', function(e) {
     }
 });
 
-// Init
-const urlForm = DOM.get('urlForm');
-const loginForm = DOM.get('loginForm');
-const loginContainer = DOM.get('loginContainer');
-const appContainer = DOM.get('appContainer');
-
-urlForm.onsubmit = handleSubmit;
-DOM.get('confirmDelete').onclick = deleteCampaign;
-loginForm.onsubmit = e => {
-    e.preventDefault();
-    authToken = loginForm.password.value;
+// Login/Logout
+function login(password) {
+    authToken = password;
     localStorage.setItem('authToken', authToken);
-    loginContainer.style.display = 'none';
-    appContainer.style.display = 'block';
+    DOM.get('loginContainer').style.display = 'none';
+    DOM.get('appContainer').style.display = 'block';
     loadUrls();
-};
+}
 
+function logout() {
+    authToken = null;
+    localStorage.removeItem('authToken');
+    DOM.get('loginContainer').style.display = 'block';
+    DOM.get('appContainer').style.display = 'none';
+}
+
+// Initialize
+DOM.get('urlForm').onsubmit = handleSubmit;
+DOM.get('confirmDelete').onclick = deleteCampaign;
+DOM.get('loginForm').onsubmit = e => {
+    e.preventDefault();
+    login(e.target.password.value);
+};
+DOM.query('.sidebar-toggle').onclick = toggleSidebar;
+DOM.query('.copy-latest').onclick = () => copyToClipboard(latestUrl);
+
+// Check auth on load
 if (authToken) {
-    loginContainer.style.display = 'none';
-    appContainer.style.display = 'block';
+    DOM.get('loginContainer').style.display = 'none';
+    DOM.get('appContainer').style.display = 'block';
     loadUrls();
 } else {
-    loginContainer.style.display = 'block';
-    appContainer.style.display = 'none';
+    DOM.get('loginContainer').style.display = 'block';
+    DOM.get('appContainer').style.display = 'none';
 }
