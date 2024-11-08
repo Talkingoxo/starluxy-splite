@@ -1,8 +1,37 @@
 let authToken = localStorage.getItem('authToken');
 const API_URL = 'https://redirecting-api.aa4530607.workers.dev';
 const REDIRECT_URL = 'https://starluxy-splite.aa4530607.workers.dev';
+let deleteId = null;
 
-// Auth functions
+// Core API function
+async function apiCall(endpoint, options = {}) {
+    const response = await fetch(`${API_URL}${endpoint}`, {
+        ...options,
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+            ...options.headers
+        }
+    });
+    
+    if (!response.ok) throw new Error('API call failed');
+    return response.json();
+}
+
+// UI Functions
+function showMessage(type, text) {
+    const msg = document.getElementById(`${type}Message`);
+    msg.textContent = text;
+    msg.className = `message ${text.includes('Error') ? 'error' : 'success'}`;
+    msg.style.display = 'block';
+    setTimeout(() => msg.style.display = 'none', 3000);
+}
+
+function toggleModal(show) {
+    document.getElementById('deleteModal').classList.toggle('active', show);
+}
+
+// Auth Functions
 function login(password) {
     authToken = password;
     localStorage.setItem('authToken', authToken);
@@ -26,54 +55,36 @@ function hideApp() {
     document.getElementById('appContainer').style.display = 'none';
 }
 
-// Message display
-function showMessage(type, text) {
-    const msg = document.getElementById(`${type}Message`);
-    msg.textContent = text;
-    msg.className = `message ${text.includes('Error') ? 'error' : 'success'}`;
-    msg.style.display = 'block';
-    setTimeout(() => msg.style.display = 'none', 3000);
-}
-
-// URL handling
+// URL Management
 async function handleSubmit(e) {
     e.preventDefault();
     const form = e.target;
-    const campaignId = Math.random().toString(36).slice(2, 10);
-    
-    try {
-        const response = await fetch(`${API_URL}/save-campaign`, {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`
-            },
-            body: JSON.stringify({
-                campaignId,
-                name: form.name.value,
-                description: form.description.value,
-                url1: form.url1.value,
-                url2: form.url2.value
-            })
-        });
+    const data = {
+        campaignId: Math.random().toString(36).slice(2, 10),
+        name: form.name.value,
+        description: form.description.value,
+        url1: form.url1.value,
+        url2: form.url2.value
+    };
 
-        if (response.ok) {
-            form.reset();
-            showMessage('create', 'Split URL created successfully!');
-            loadUrls();
-        } else {
-            showMessage('create', 'Error creating split URL');
-        }
+    try {
+        await apiCall('/save-campaign', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        
+        form.reset();
+        showMessage('create', 'Split URL created successfully!');
+        await loadUrls();  // Wait for URLs to load before continuing
     } catch (err) {
         showMessage('create', 'Error creating split URL');
     }
 }
 
 function createUrlItem(campaign) {
+    const splitUrl = `${REDIRECT_URL}/${campaign.id}`;
     const item = document.createElement('div');
     item.className = 'url-item';
-    
-    const splitUrl = `${REDIRECT_URL}/${campaign.id}`;
     
     item.innerHTML = `
         <div class="url-header">
@@ -94,75 +105,61 @@ function createUrlItem(campaign) {
         </div>
     `;
 
-    const toggleBtn = item.querySelector('.toggle-btn');
-    const content = item.querySelector('.url-content');
-    const deleteBtn = item.querySelector('.delete-btn');
-    const copyBtn = item.querySelector('.copy-btn');
-    
-    toggleBtn.onclick = () => {
-        content.classList.toggle('active');
-        toggleBtn.classList.toggle('fa-plus');
-        toggleBtn.classList.toggle('fa-minus');
+    // Event Listeners
+    item.querySelector('.toggle-btn').onclick = (e) => {
+        item.querySelector('.url-content').classList.toggle('active');
+        e.target.classList.toggle('fa-plus');
+        e.target.classList.toggle('fa-minus');
     };
 
-    deleteBtn.onclick = () => {
+    item.querySelector('.delete-btn').onclick = () => {
         deleteId = campaign.id;
         toggleModal(true);
     };
 
-    copyBtn.onclick = () => copyToClipboard(splitUrl);
+    item.querySelector('.copy-btn').onclick = () => copyToClipboard(splitUrl);
 
     return item;
 }
 
 async function loadUrls() {
+    const list = document.getElementById('urlList');
+    list.innerHTML = '<p>Loading...</p>';  // Loading state
+
     try {
-        const response = await fetch(`${API_URL}/list-campaigns`, {
-            headers: {
-                'Authorization': `Bearer ${authToken}`
-            }
-        });
-        const data = await response.json();
-
-        const list = document.getElementById('urlList');
-        list.innerHTML = '';
-
-        if (Array.isArray(data)) {
-            if (data.length === 0) {
-                list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
-            } else {
-                data.forEach(campaign => list.appendChild(createUrlItem(campaign)));
-            }
+        const data = await apiCall('/list-campaigns');
+        
+        if (!Array.isArray(data)) {
+            throw new Error('Invalid data received');
         }
+
+        list.innerHTML = '';  // Clear loading state
+        
+        if (data.length === 0) {
+            list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
+            return;
+        }
+
+        // Sort by newest first (assuming campaignId contains timestamp)
+        data.sort((a, b) => b.id.localeCompare(a.id));
+        
+        data.forEach(campaign => list.appendChild(createUrlItem(campaign)));
     } catch (err) {
-        console.error('Load error:', err);
+        list.innerHTML = '<p style="color: var(--error);">Error loading URLs. Please refresh.</p>';
     }
-}
-
-// Delete functionality
-let deleteId = null;
-
-function toggleModal(show) {
-    document.getElementById('deleteModal').classList.toggle('active', show);
 }
 
 async function deleteCampaign() {
     if (!deleteId) return;
     
     try {
-        const response = await fetch(`${API_URL}/delete-campaign`, {
+        await apiCall('/delete-campaign', {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${authToken}`
-            },
             body: JSON.stringify({ campaignId: deleteId })
         });
-
-        if (response.ok) {
-            showMessage('list', 'Split URL deleted successfully');
-            loadUrls();
-        }
+        
+        showMessage('list', 'Split URL deleted successfully');
+        await loadUrls();  // Wait for reload before continuing
     } catch (err) {
         showMessage('list', 'Error deleting split URL');
     }
@@ -183,15 +180,11 @@ async function copyToClipboard(text) {
 // Initialize
 document.getElementById('urlForm').onsubmit = handleSubmit;
 document.getElementById('confirmDelete').onclick = deleteCampaign;
-document.getElementById('loginForm').onsubmit = function(e) {
+document.getElementById('loginForm').onsubmit = (e) => {
     e.preventDefault();
-    const password = document.getElementById('password').value;
-    login(password);
+    login(document.getElementById('password').value);
 };
 
-// Check auth on load
-if (authToken) {
-    showApp();
-} else {
-    hideApp();
-}
+// Auto-login if token exists
+if (authToken) showApp();
+else hideApp();
