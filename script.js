@@ -1,20 +1,25 @@
-function toggleSidebar() {
-    document.getElementById('sidebar').classList.toggle('active');
-}
 let authToken = localStorage.getItem('authToken');
-let deleteId = null;
-let latestUrl = '';
-
 const API = {
     URL: 'https://redirecting-api.aa4530607.workers.dev',
     REDIRECT: 'https://starluxy-splite.aa4530607.workers.dev'
 };
+let deleteId = null;
 
 const DOM = {
     get: id => document.getElementById(id),
-    create: tag => document.createElement(tag),
-    query: selector => document.querySelector(selector)
+    create: tag => document.createElement(tag)
 };
+
+function toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('active');
+}
+
+function logout() {
+    authToken = null;
+    localStorage.removeItem('authToken');
+    DOM.get('loginContainer').style.display = 'block';
+    DOM.get('appContainer').style.display = 'none';
+}
 
 async function apiCall(endpoint, options = {}) {
     const response = await fetch(`${API.URL}${endpoint}`, {
@@ -29,13 +34,39 @@ async function apiCall(endpoint, options = {}) {
     return response.json();
 }
 
-function toggleModal(show) {
-    DOM.get('deleteModal').classList.toggle('active', show);
-    deleteId = show ? deleteId : null;
-}
+async function handleSubmit(e) {
+    e.preventDefault();
+    const form = e.target;
+    const url1 = form.url1.value;
+    const url2 = form.url2.value;
+    const warning = form.querySelector('.warning');
 
-function toggleSidebar() {
-    DOM.query('.sidebar').classList.toggle('active');
+    if (url1 === url2) {
+        warning.style.display = 'block';
+        return;
+    }
+
+    const data = {
+        campaignId: Date.now().toString(36) + Math.random().toString(36).substr(2),
+        name: form.name.value,
+        url1, url2,
+        description: form.description.value
+    };
+
+    try {
+        await apiCall('/save-campaign', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        form.reset();
+        warning.style.display = 'none';
+        
+        const urlList = DOM.get('urlList');
+        if (urlList.firstChild?.tagName === 'P') urlList.innerHTML = '';
+        urlList.insertBefore(createUrlItem({ id: data.campaignId, ...data }), urlList.firstChild);
+    } catch (err) {
+        console.error(err);
+    }
 }
 
 function createUrlItem(campaign) {
@@ -77,48 +108,6 @@ function createUrlItem(campaign) {
     return item;
 }
 
-async function handleSubmit(e) {
-    e.preventDefault();
-    const form = e.target;
-    const url1 = form.url1.value;
-    const url2 = form.url2.value;
-    const warning = form.querySelector('.warning');
-
-    if (url1 === url2) {
-        warning.style.display = 'block';
-        return;
-    }
-
-    const campaignId = Date.now().toString(36) + Math.random().toString(36).substr(2);
-    const data = {
-        campaignId,
-        name: form.name.value,
-        url1, url2,
-        description: form.description.value
-    };
-
-    try {
-        await apiCall('/save-campaign', {
-            method: 'POST',
-            body: JSON.stringify(data)
-        });
-
-        // Update latest URL and reset form
-        latestUrl = `${API.REDIRECT}/${campaignId}`;
-        form.reset();
-        warning.style.display = 'none';
-        
-        // Add new item to list
-        const urlList = DOM.get('urlList');
-        if (urlList.firstChild?.tagName === 'P') {
-            urlList.innerHTML = '';
-        }
-        urlList.insertBefore(createUrlItem({ id: campaignId, ...data }), urlList.firstChild);
-    } catch (err) {
-        console.error(err);
-    }
-}
-
 async function loadUrls() {
     try {
         const data = await apiCall('/list-campaigns');
@@ -130,14 +119,8 @@ async function loadUrls() {
             return;
         }
 
-        // Sort by newest first
         data.sort((a, b) => b.id.localeCompare(a.id))
             .forEach(campaign => list.appendChild(createUrlItem(campaign)));
-
-        // Set latest URL if exists
-        if (data[0]) {
-            latestUrl = `${API.REDIRECT}/${data[0].id}`;
-        }
     } catch (err) {
         console.error(err);
     }
@@ -155,7 +138,6 @@ async function deleteCampaign() {
         const itemToRemove = document.querySelector(`[data-id="${deleteId}"]`);
         if (itemToRemove) {
             itemToRemove.remove();
-            
             const list = DOM.get('urlList');
             if (!list.children.length) {
                 list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
@@ -166,17 +148,22 @@ async function deleteCampaign() {
     }
     
     toggleModal(false);
+    deleteId = null;
 }
 
-async function copyToClipboard(text) {
-    try {
-        await navigator.clipboard.writeText(text);
-    } catch (err) {
-        console.error(err);
-    }
+function toggleModal(show) {
+    DOM.get('deleteModal').classList.toggle('active', show);
+    deleteId = show ? deleteId : null;
 }
 
-// URL change handler
+// Add warning element to form
+const warningEl = DOM.create('p');
+warningEl.className = 'warning';
+warningEl.style.cssText = 'color: #ff4444; margin: 10px 0; display: none;';
+warningEl.textContent = 'Links Can\'t be the same';
+DOM.get('urlForm').insertBefore(warningEl, DOM.get('urlForm').querySelector('button'));
+
+// Watch for URL changes to hide warning
 DOM.get('urlForm').addEventListener('input', function(e) {
     if (e.target.type === 'url') {
         const warning = this.querySelector('.warning');
@@ -190,31 +177,20 @@ DOM.get('urlForm').addEventListener('input', function(e) {
     }
 });
 
-// Login/Logout
-function login(password) {
-    authToken = password;
+// Init
+const urlForm = DOM.get('urlForm');
+const loginForm = DOM.get('loginForm');
+
+urlForm.onsubmit = handleSubmit;
+DOM.get('confirmDelete').onclick = deleteCampaign;
+loginForm.onsubmit = e => {
+    e.preventDefault();
+    authToken = loginForm.password.value;
     localStorage.setItem('authToken', authToken);
     DOM.get('loginContainer').style.display = 'none';
     DOM.get('appContainer').style.display = 'block';
     loadUrls();
-}
-
-function logout() {
-    authToken = null;
-    localStorage.removeItem('authToken');
-    DOM.get('loginContainer').style.display = 'block';
-    DOM.get('appContainer').style.display = 'none';
-}
-
-// Initialize
-DOM.get('urlForm').onsubmit = handleSubmit;
-DOM.get('confirmDelete').onclick = deleteCampaign;
-DOM.get('loginForm').onsubmit = e => {
-    e.preventDefault();
-    login(e.target.password.value);
 };
-DOM.query('.sidebar-toggle').onclick = toggleSidebar;
-DOM.query('.copy-latest').onclick = () => copyToClipboard(latestUrl);
 
 // Check auth on load
 if (authToken) {
