@@ -3,25 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Split URL Generator</title>
+    <title>Split URL Manager</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 800px;
-            margin: 40px auto;
+            margin: 0;
             padding: 20px;
             background: #f5f5f5;
         }
         .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
+        .form-panel, .list-panel {
             background: white;
-            padding: 30px;
+            padding: 20px;
             border-radius: 10px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        input[type="url"] {
+        input, textarea {
             width: 100%;
             padding: 10px;
-            margin: 10px 0;
+            margin: 5px 0 15px;
             border: 1px solid #ddd;
             border-radius: 4px;
             box-sizing: border-box;
@@ -30,124 +37,248 @@
             background: #0070f3;
             color: white;
             border: none;
-            padding: 12px 20px;
+            padding: 10px 20px;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 16px;
-            margin-top: 20px;
         }
         button:hover {
             background: #0051cc;
         }
-        #result {
-            margin-top: 20px;
-            padding: 15px;
+        .url-item {
             border: 1px solid #ddd;
+            margin: 10px 0;
             border-radius: 4px;
-            background: #f8f9fa;
-            word-break: break-all;
         }
-        .hide {
+        .url-header {
+            padding: 15px;
+            background: #f8f9fa;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        .url-content {
+            padding: 15px;
+            border-top: 1px solid #ddd;
             display: none;
         }
-        #debug {
-            margin-top: 20px;
-            padding: 10px;
-            background: #f8f9fa;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-family: monospace;
-            white-space: pre-wrap;
+        .url-content.active {
+            display: block;
+        }
+        .copy-btn {
+            padding: 5px 10px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .delete-btn {
+            color: #dc3545;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+        .modal-buttons button {
+            margin: 0 10px;
+        }
+        .error {
+            color: #dc3545;
+            font-size: 14px;
+            margin-top: 5px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Split URL Generator</h1>
-        <form id="urlForm">
-            <div>
-                <label for="url1">First Product URL:</label>
-                <input type="url" id="url1" required 
-                       placeholder="https://example.com/product1"
-                       value="https://www.starluxy.com/products/filtraxy-filter">
-            </div>
-            <div>
-                <label for="url2">Second Product URL:</label>
-                <input type="url" id="url2" required 
-                       placeholder="https://example.com/product2"
-                       value="https://www.starluxy.com/products/purain-hydration-filter-2">
-            </div>
-            <button type="submit">Generate Split URL</button>
-        </form>
-        <div id="result" class="hide">
-            <h3>Your Split URL:</h3>
-            <p id="splitUrl"></p>
+        <div class="form-panel">
+            <h2>Create Split URL</h2>
+            <form id="urlForm">
+                <div>
+                    <label for="name">Name (required):</label>
+                    <input type="text" id="name" required>
+                </div>
+                <div>
+                    <label for="description">Description:</label>
+                    <textarea id="description" rows="3"></textarea>
+                </div>
+                <div>
+                    <label for="url1">First URL:</label>
+                    <input type="url" id="url1" required>
+                </div>
+                <div>
+                    <label for="url2">Second URL:</label>
+                    <input type="url" id="url2" required>
+                </div>
+                <button type="submit">Generate Split URL</button>
+            </form>
         </div>
-        <div id="debug"></div>
+
+        <div class="list-panel">
+            <h2>Your Split URLs</h2>
+            <div id="urlList"></div>
+        </div>
+    </div>
+
+    <div id="deleteModal" class="modal">
+        <div class="modal-content">
+            <h3>Are you sure?</h3>
+            <p>This action cannot be undone.</p>
+            <div class="modal-buttons">
+                <button id="confirmDelete">Yes</button>
+                <button onclick="closeModal()">No</button>
+            </div>
+        </div>
     </div>
 
     <script>
-        function generateId() {
-            return Math.random().toString(36).substring(2, 10);
+        const API_WORKER_URL = 'https://redirecting-api.aa4530607.workers.dev';
+        const REDIRECT_WORKER_URL = 'https://starluxy-splite.aa4530607.workers.dev';
+
+        // Load existing URLs on page load
+        loadUrls();
+
+        async function loadUrls() {
+            try {
+                const response = await fetch(`${API_WORKER_URL}/list-campaigns`);
+                if (response.ok) {
+                    const campaigns = await response.json();
+                    displayUrls(campaigns);
+                }
+            } catch (error) {
+                console.error('Error loading URLs:', error);
+            }
         }
 
-        function log(message) {
-            const debug = document.getElementById('debug');
-            debug.textContent += new Date().toISOString() + ': ' + message + '\n';
+        function displayUrls(campaigns) {
+            const urlList = document.getElementById('urlList');
+            urlList.innerHTML = '';
+
+            campaigns.forEach(campaign => {
+                const item = document.createElement('div');
+                item.className = 'url-item';
+                item.innerHTML = `
+                    <div class="url-header">
+                        <span>${campaign.name}</span>
+                        <div>
+                            <i class="fas fa-plus toggle-btn"></i>
+                            <i class="fas fa-trash delete-btn"></i>
+                        </div>
+                    </div>
+                    <div class="url-content">
+                        <p><strong>Split URL:</strong> 
+                            ${REDIRECT_WORKER_URL}/${campaign.id}
+                            <button class="copy-btn" onclick="copyUrl('${REDIRECT_WORKER_URL}/${campaign.id}')">
+                                Copy
+                            </button>
+                        </p>
+                        ${campaign.description ? `<p><strong>Description:</strong> ${campaign.description}</p>` : ''}
+                        <p><strong>URLs:</strong></p>
+                        <p>1. ${campaign.url1}</p>
+                        <p>2. ${campaign.url2}</p>
+                    </div>
+                `;
+
+                urlList.appendChild(item);
+
+                // Add toggle functionality
+                const toggleBtn = item.querySelector('.toggle-btn');
+                const content = item.querySelector('.url-content');
+                toggleBtn.addEventListener('click', () => {
+                    content.classList.toggle('active');
+                    toggleBtn.classList.toggle('fa-plus');
+                    toggleBtn.classList.toggle('fa-minus');
+                });
+
+                // Add delete functionality
+                const deleteBtn = item.querySelector('.delete-btn');
+                deleteBtn.addEventListener('click', () => {
+                    showDeleteModal(campaign.id);
+                });
+            });
+        }
+
+        function copyUrl(url) {
+            navigator.clipboard.writeText(url).then(() => {
+                alert('URL copied to clipboard!');
+            });
+        }
+
+        function showDeleteModal(campaignId) {
+            const modal = document.getElementById('deleteModal');
+            modal.style.display = 'block';
+            document.getElementById('confirmDelete').onclick = () => deleteCampaign(campaignId);
+        }
+
+        function closeModal() {
+            document.getElementById('deleteModal').style.display = 'none';
+        }
+
+        async function deleteCampaign(campaignId) {
+            try {
+                const response = await fetch(`${API_WORKER_URL}/delete-campaign`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ campaignId })
+                });
+
+                if (response.ok) {
+                    loadUrls();
+                    closeModal();
+                }
+            } catch (error) {
+                console.error('Error deleting campaign:', error);
+            }
         }
 
         document.getElementById('urlForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
+            const name = document.getElementById('name').value;
+            const description = document.getElementById('description').value;
             const url1 = document.getElementById('url1').value;
             const url2 = document.getElementById('url2').value;
-            const campaignId = generateId();
-            
-            // Clear previous debug info
-            document.getElementById('debug').textContent = '';
-            
-            log('Starting request...');
-            log(`Campaign ID: ${campaignId}`);
-            log(`URL1: ${url1}`);
-            log(`URL2: ${url2}`);
+            const campaignId = Math.random().toString(36).substring(2, 10);
 
-            // Your actual worker URLs
-            const API_WORKER_URL = 'https://redirecting-api.aa4530607.workers.dev/save-campaign';
-            const REDIRECT_WORKER_URL = 'https://starluxy-splite.aa4530607.workers.dev';
-            
             try {
-                log('Sending request to: ' + API_WORKER_URL);
-                
-                const response = await fetch(API_WORKER_URL, {
+                const response = await fetch(`${API_WORKER_URL}/save-campaign`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
                         campaignId,
+                        name,
+                        description,
                         url1,
                         url2
                     })
                 });
-                
-                log(`Response status: ${response.status}`);
-                
+
                 if (response.ok) {
-                    const responseData = await response.json();
-                    log('Response data: ' + JSON.stringify(responseData));
-                    
-                    const splitUrl = `${REDIRECT_WORKER_URL}/${campaignId}`;
-                    document.getElementById('splitUrl').textContent = splitUrl;
-                    document.getElementById('result').classList.remove('hide');
-                    log('Success! Split URL generated: ' + splitUrl);
-                } else {
-                    const errorText = await response.text();
-                    log('Error response: ' + errorText);
-                    alert('Error creating split URL. Check debug info below.');
+                    // Clear form
+                    this.reset();
+                    // Reload URL list
+                    loadUrls();
                 }
             } catch (error) {
-                log('Error: ' + error.message);
-                alert('Error creating split URL. Check debug info below.');
                 console.error('Error:', error);
             }
         });
