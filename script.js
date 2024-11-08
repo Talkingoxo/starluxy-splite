@@ -73,9 +73,9 @@ function createUrlItem(campaign) {
     
     item.innerHTML = `
         <div class="url-header">
-            <span>${campaign.name}</span> 
-            <a href="${splitUrl}" class="split-url" title="Click to Copy" onclick="event.preventDefault(); navigator.clipboard.writeText('${splitUrl}')">${splitUrl}</a>
+            <span>${campaign.name}</span>
             <div class="url-actions">
+                <i class="fas fa-link url-icon" onclick="navigator.clipboard.writeText('${splitUrl}')" title="Copy Split URL"></i>
                 <i class="fas fa-plus toggle-btn"></i>
                 <i class="fas fa-trash delete-btn"></i>
             </div>
