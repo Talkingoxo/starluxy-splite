@@ -48,6 +48,7 @@ async function handleSubmit(e) {
             body: JSON.stringify(data)
         });
         form.reset();
+        warning.style.display = 'none';
         
         const urlList = DOM.get('urlList');
         if (urlList.firstChild?.tagName === 'P') urlList.innerHTML = '';
@@ -139,20 +140,26 @@ async function deleteCampaign() {
     deleteId = null;
 }
 
-// URL validation
-DOM.get('urlForm').addEventListener('input', function(e) {
-    const warning = this.querySelector('.warning');
-    const sameUrls = this.url1.value === this.url2.value;
-    warning.style.display = sameUrls ? 'block' : 'none';
-    this.querySelector('button[type="submit"]').disabled = sameUrls;
-});
-
 // Add warning element to form
 const warningEl = DOM.create('p');
 warningEl.className = 'warning';
 warningEl.style.cssText = 'color: #ff4444; margin: 10px 0; display: none;';
 warningEl.textContent = 'Links Can\'t be the same';
 DOM.get('urlForm').insertBefore(warningEl, DOM.get('urlForm').querySelector('button'));
+
+// Watch for URL changes to hide warning
+DOM.get('urlForm').addEventListener('input', function(e) {
+    if (e.target.type === 'url') {
+        const warning = this.querySelector('.warning');
+        if (warning.style.display === 'block') {
+            const url1 = this.url1.value;
+            const url2 = this.url2.value;
+            if (url1 !== url2) {
+                warning.style.display = 'none';
+            }
+        }
+    }
+});
 
 // Init
 const urlForm = DOM.get('urlForm');
