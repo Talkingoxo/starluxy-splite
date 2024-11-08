@@ -25,9 +25,8 @@ body {
 
 /* Layout */
 .container {
-    max-width: 1000px;
+    max-width: 775px;
     margin: 0 auto;
-    margin-left: 60px;
     position: relative;
 }
 
@@ -79,14 +78,11 @@ button {
 }
 
 .burger-icon {
-    position: fixed;
-    top: 20px;
+ position: fixed;
+    top: 22px;
     left: 20px;
-    z-index: 1001;
+    z-index: 1003;
     cursor: pointer;
-    background: var(--bg-secondary);
-    padding: 10px;
-    border-radius: 4px;
 }
 
 .burger-icon i {
