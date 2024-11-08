@@ -26,8 +26,7 @@ body {
 .container {
     max-width: 1000px;
     margin: 0 auto;
-    display: grid;
-    gap: 20px;
+    position: relative;
 }
 
 .panel {
@@ -54,17 +53,50 @@ button {
     padding: 8px 16px;
     border-radius: 4px;
     cursor: pointer;
+    font-size: 14px;
 }
 
-button:hover {
-    opacity: 0.9;
+/* Sidebar Styles */
+.sidebar {
+    position: fixed;
+    top: 0;
+    left: -400px;
+    width: 400px;
+    height: 100vh;
+    background: var(--bg-secondary);
+    transition: left 0.3s ease;
+    padding: 20px;
+    box-shadow: 2px 0 5px rgba(0,0,0,0.2);
+    z-index: 1000;
+    overflow-y: auto;
 }
 
+.sidebar.active {
+    left: 0;
+}
+
+.sidebar-toggle {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 1001;
+    cursor: pointer;
+    width: 40px;
+    height: 40px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* URL Items */
 .url-item {
     background: var(--bg-primary);
     margin: 12px 0;
     border-radius: 4px;
     border: 1px solid var(--border);
+    position: relative;
 }
 
 .url-header {
@@ -80,19 +112,55 @@ button:hover {
     display: none;
 }
 
-.url-content.active { 
-    display: block; 
+.url-content.active {
+    display: block;
 }
 
-.url-content p { 
-    margin: 8px 0; 
+.url-actions {
+    display: flex;
+    gap: 12px;
 }
 
+.url-actions i {
+    cursor: pointer;
+    padding: 4px;
+}
+
+.fa-link:hover {
+    color: var(--accent);
+}
+
+.fa-trash:hover {
+    color: var(--error);
+}
+
+/* Latest URL Section */
+.latest-url {
+    margin: 10px 0;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.copy-latest {
+    cursor: pointer;
+    padding: 8px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+}
+
+.copy-latest:hover {
+    color: var(--accent);
+}
+
+/* Modal Styles */
 .modal {
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.8);
+    background: rgba(0,0,0,0.7);
+    z-index: 1002;
 }
 
 .modal.active {
@@ -109,47 +177,33 @@ button:hover {
     text-align: center;
 }
 
-.btn-group { 
+.btn-group {
     display: flex;
     gap: 12px;
     justify-content: center;
     margin-top: 20px;
 }
 
-.message {
-    padding: 10px;
-    margin: 10px 0;
-    border-radius: 4px;
-    display: none;
-}
-
-.message.error { 
-    background: var(--error); 
-}
-
-.message.success { 
-    background: var(--success); 
-}
-
-#debug {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
+/* Login Page */
+#loginContainer {
+    max-width: 400px;
+    margin: 100px auto;
     background: var(--bg-secondary);
-    padding: 10px;
-    border-radius: 4px;
-    max-width: 300px;
-    max-height: 200px;
-    overflow: auto;
-    font-size: 12px;
-    display: none;
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
 }
 
-.toggle-btn, .delete-btn {
-    cursor: pointer;
-    margin: 0 5px;
+.logout-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: var(--error);
 }
 
-.delete-btn {
+/* Utility Classes */
+.warning {
     color: var(--error);
+    margin: 10px 0;
+    display: none;
 }
