@@ -8,27 +8,21 @@
     <link href="styles.css" rel="stylesheet">
 </head>
 <body>
-    <div id="loginContainer" style="max-width: 400px; margin: 100px auto; padding: 20px; background: var(--bg-secondary); border-radius: 8px;">
+    <div id="loginContainer">
         <h2>Login</h2>
         <form id="loginForm">
             <input type="password" id="password" placeholder="Password" required>
             <button type="submit">Login</button>
         </form>
     </div>
-
     <div id="appContainer" style="display: none;">
         <button class="logout-btn" onclick="logout()">Logout</button>
         
-        <div class="burger-icon" onclick="toggleSidebar()">
-            <i class="fas fa-bars"></i>
-        </div>
-
         <div class="sidebar" id="sidebar">
             <h2>Your Split URLs</h2>
             <div id="urlList"></div>
         </div>
-
-        <div class="container">
+        <div class="main-content">
             <div class="panel">
                 <h2>Create Split URL</h2>
                 <div id="createMessage" class="message"></div>
@@ -49,13 +43,11 @@
                         <label for="url2">Second URL</label>
                         <input type="url" id="url2" required>
                     </div>
-                    <p class="warning" style="display: none; color: #ff4444; margin: 10px 0;">Links Can't be the same</p>
                     <button type="submit">Generate Split URL</button>
                 </form>
             </div>
         </div>
     </div>
-
     <div id="deleteModal" class="modal">
         <div class="modal-content">
             <h3>Delete Split URL?</h3>
@@ -66,7 +58,6 @@
             </div>
         </div>
     </div>
-
     <script src="script.js"></script>
 </body>
 </html>
