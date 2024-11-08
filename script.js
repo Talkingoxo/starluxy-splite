@@ -1,20 +1,14 @@
-let authToken = localStorage.getItem('authToken');
-let deleteId = null;
+let authToken = localStorage.getItem('authToken'), deleteId = null;
 
 const API = {
     URL: 'https://redirecting-api.aa4530607.workers.dev',
     REDIRECT: 'https://starluxy-splite.aa4530607.workers.dev'
 };
 
-const DOM = {
-    get: id => document.getElementById(id),
-    create: tag => document.createElement(tag),
-    toggle: (id, show) => DOM.get(id).style.display = show ? 'block' : 'none'
-};
+const $ = id => document.getElementById(id);
 
-// Core Functions
 async function apiCall(endpoint, options = {}) {
-    const response = await fetch(`${API.URL}${endpoint}`, {
+    const res = await fetch(`${API.URL}${endpoint}`, {
         ...options,
         headers: {
             'Content-Type': 'application/json',
@@ -22,40 +16,25 @@ async function apiCall(endpoint, options = {}) {
             ...options.headers
         }
     });
-    if (!response.ok) throw new Error('API failed');
-    return response.json();
+    if (!res.ok) throw new Error('API failed');
+    return res.json();
 }
 
-function toggleDisplay(loginVisible) {
-    DOM.toggle('loginContainer', loginVisible);
-    DOM.toggle('appContainer', !loginVisible);
+function toggleUI(isLogin) {
+    $('loginContainer').style.display = isLogin ? 'block' : 'none';
+    $('appContainer').style.display = isLogin ? 'none' : 'block';
 }
 
-function toggleSidebar() {
-    DOM.get('sidebar').classList.toggle('active');
-}
-
-function toggleModal(show) {
-    DOM.get('deleteModal').classList.toggle('active', show);
-    deleteId = show ? deleteId : null;
-}
-
-function setNoUrlsMessage(list) {
-    list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
-}
-
-// Auth Functions
 function logout() {
     authToken = null;
     localStorage.removeItem('authToken');
-    toggleDisplay(true);
+    toggleUI(true);
 }
 
-// URL Management
 async function handleSubmit(e) {
     e.preventDefault();
     const form = e.target;
-    const { url1, url2, name, description } = form;
+    const {url1, url2, name, description} = form;
     const warning = form.querySelector('.warning');
 
     if (url1.value === url2.value) {
@@ -63,21 +42,21 @@ async function handleSubmit(e) {
         return;
     }
 
-    const data = {
-        campaignId: Date.now().toString(36) + Math.random().toString(36).substr(2),
-        name: name.value,
-        url1: url1.value,
-        url2: url2.value,
-        description: description.value
-    };
-
     try {
+        const data = {
+            campaignId: Date.now().toString(36) + Math.random().toString(36).substr(2),
+            name: name.value,
+            url1: url1.value,
+            url2: url2.value,
+            description: description.value
+        };
+
         await apiCall('/save-campaign', {
             method: 'POST',
             body: JSON.stringify(data)
         });
-        
-        const urlList = DOM.get('urlList');
+
+        const urlList = $('urlList');
         if (urlList.firstChild?.tagName === 'P') urlList.innerHTML = '';
         urlList.insertBefore(createUrlItem({ id: data.campaignId, ...data }), urlList.firstChild);
         
@@ -89,7 +68,7 @@ async function handleSubmit(e) {
 }
 
 function createUrlItem(campaign) {
-    const item = DOM.create('div');
+    const item = document.createElement('div');
     item.className = 'url-item';
     item.dataset.id = campaign.id;
     
@@ -123,7 +102,7 @@ function createUrlItem(campaign) {
 
     item.querySelector('.delete-btn').onclick = () => {
         deleteId = campaign.id;
-        toggleModal(true);
+        $('deleteModal').classList.toggle('active', true);
     };
 
     return item;
@@ -132,16 +111,15 @@ function createUrlItem(campaign) {
 async function loadUrls() {
     try {
         const data = await apiCall('/list-campaigns');
-        const list = DOM.get('urlList');
-        list.innerHTML = '';
-        
-        if (!data.length) {
-            setNoUrlsMessage(list);
-            return;
+        const list = $('urlList');
+        list.innerHTML = !data.length ? 
+            '<p style="color: var(--text-secondary);">No split URLs created yet.</p>' :
+            '';
+            
+        if (data.length) {
+            data.sort((a, b) => b.id.localeCompare(a.id))
+                .forEach(campaign => list.appendChild(createUrlItem(campaign)));
         }
-
-        data.sort((a, b) => b.id.localeCompare(a.id))
-            .forEach(campaign => list.appendChild(createUrlItem(campaign)));
     } catch (err) {
         console.error(err);
     }
@@ -156,53 +134,49 @@ async function deleteCampaign() {
             body: JSON.stringify({ campaignId: deleteId })
         });
 
-        const itemToRemove = document.querySelector(`[data-id="${deleteId}"]`);
-        if (itemToRemove) {
-            itemToRemove.remove();
-            const list = DOM.get('urlList');
-            if (!list.children.length) setNoUrlsMessage(list);
+        const item = document.querySelector(`[data-id="${deleteId}"]`);
+        if (item) {
+            item.remove();
+            const list = $('urlList');
+            if (!list.children.length) {
+                list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
+            }
         }
     } catch (err) {
         console.error(err);
     }
     
-    toggleModal(false);
+    $('deleteModal').classList.toggle('active', false);
     deleteId = null;
 }
 
-// Setup warning element
-const warningEl = DOM.create('p');
-warningEl.className = 'warning';
-warningEl.style.cssText = 'color: #ff4444; margin: 10px 0; display: none;';
-warningEl.textContent = 'Links Can\'t be the same';
-DOM.get('urlForm').insertBefore(warningEl, DOM.get('urlForm').querySelector('button'));
+// Setup warning
+const warning = document.createElement('p');
+warning.className = 'warning';
+warning.textContent = 'Links Can\'t be the same';
+$('urlForm').insertBefore(warning, $('urlForm').querySelector('button'));
 
-// Event Listeners
-DOM.get('urlForm').addEventListener('input', function(e) {
+// Event listeners
+$('urlForm').addEventListener('input', e => {
     if (e.target.type === 'url') {
-        const warning = this.querySelector('.warning');
+        const warning = e.currentTarget.querySelector('.warning');
         if (warning.style.display === 'block') {
-            if (this.url1.value !== this.url2.value) {
-                warning.style.display = 'none';
-            }
+            const form = e.currentTarget;
+            if (form.url1.value !== form.url2.value) warning.style.display = 'none';
         }
     }
 });
 
-// Initialize
-const urlForm = DOM.get('urlForm');
-const loginForm = DOM.get('loginForm');
-
-urlForm.onsubmit = handleSubmit;
-DOM.get('confirmDelete').onclick = deleteCampaign;
-loginForm.onsubmit = e => {
+$('urlForm').onsubmit = handleSubmit;
+$('confirmDelete').onclick = deleteCampaign;
+$('loginForm').onsubmit = e => {
     e.preventDefault();
-    authToken = loginForm.password.value;
+    authToken = $('password').value;
     localStorage.setItem('authToken', authToken);
-    toggleDisplay(false);
+    toggleUI(false);
     loadUrls();
 };
 
-// Initial auth check
-toggleDisplay(!authToken);
+// Init
+toggleUI(!authToken);
 if (authToken) loadUrls();
