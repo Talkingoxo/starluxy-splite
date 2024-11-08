@@ -85,20 +85,6 @@ button {
     gap: 12px;
 }
 
-.split-url {
-    color: var(--text-secondary);
-    text-decoration: none;
-    font-size: 0.9em;
-    flex-grow: 1;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.split-url:hover {
-    color: var(--accent);
-}
-
 .url-content {
     padding: 16px;
     border-top: 1px solid var(--border);
