@@ -1,3 +1,6 @@
+function toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('active');
+}
 let authToken = localStorage.getItem('authToken');
 let deleteId = null;
 let latestUrl = '';
@@ -40,27 +43,35 @@ function createUrlItem(campaign) {
     item.className = 'url-item';
     item.dataset.id = campaign.id;
     
-    const splitUrl = `${API.REDIRECT}/${campaign.id}`;
-    
     item.innerHTML = `
         <div class="url-header">
             <span>${campaign.name}</span>
             <div class="url-actions">
-                <i class="fas fa-link" title="Copy URL"></i>
-                <i class="fas fa-trash" title="Delete"></i>
+                <i class="fas fa-link url-icon" onclick="navigator.clipboard.writeText('${API.REDIRECT}/${campaign.id}')"></i>
+                <i class="fas fa-plus toggle-btn"></i>
+                <i class="fas fa-trash delete-btn"></i>
             </div>
         </div>
         <div class="url-content">
+            <p>
+                <strong>Split URL:</strong> 
+                ${API.REDIRECT}/${campaign.id}
+            </p>
             ${campaign.description ? `<p><strong>Description:</strong> ${campaign.description}</p>` : ''}
             <p><strong>URL 1:</strong> ${campaign.url1}</p>
             <p><strong>URL 2:</strong> ${campaign.url2}</p>
         </div>
     `;
 
-    item.querySelector('.fa-link').onclick = () => copyToClipboard(splitUrl);
-    item.querySelector('.fa-trash').onclick = () => {
+    item.querySelector('.toggle-btn').onclick = (e) => {
+        item.querySelector('.url-content').classList.toggle('active');
+        e.target.classList.toggle('fa-plus');
+        e.target.classList.toggle('fa-minus');
+    };
+
+    item.querySelector('.delete-btn').onclick = () => {
         deleteId = campaign.id;
-        toggleModal(true);
+        DOM.get('deleteModal').classList.toggle('active', true);
     };
 
     return item;
