@@ -82,7 +82,21 @@ button {
     padding: 12px;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 12px;
+}
+
+.split-url {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.9em;
+    flex-grow: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.split-url:hover {
+    color: var(--accent);
 }
 
 .url-content {
@@ -99,6 +113,7 @@ button {
     display: flex;
     gap: 10px;
     align-items: center;
+    margin-left: auto;
 }
 
 .url-icon, 
@@ -108,12 +123,55 @@ button {
 }
 
 .url-icon:hover,
-.fa-link:hover {
+.fa-plus:hover,
+.fa-minus:hover {
     color: var(--accent);
 }
 
 .fa-trash:hover {
     color: var(--error);
+}
+
+.url-buttons {
+    display: flex;
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.url-button {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    position: relative;
+}
+
+.url-button:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.url-button:hover::after {
+    content: attr(title);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-secondary);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    white-space: nowrap;
+    margin-bottom: 8px;
+    border: 1px solid var(--border);
+    z-index: 1;
+}
+
+.description {
+    margin-bottom: 12px;
+    color: var(--text-secondary);
 }
 
 .modal {
@@ -170,4 +228,32 @@ button {
     color: var(--error);
     margin: 10px 0;
     display: none;
+}
+
+h2 {
+    margin-bottom: 20px;
+}
+
+label {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+form div {
+    margin-bottom: 5px;
+}
+
+button:hover {
+    opacity: 0.9;
+}
+
+textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+#urlList:empty {
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 20px 0;
 }
