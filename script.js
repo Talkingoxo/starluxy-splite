@@ -22,6 +22,10 @@ async function apiCall(endpoint, options = {}) {
     if (!response.ok) throw new Error('API failed');
     return response.json();
 }
+function toggleModal(show) {
+    DOM.get('deleteModal').classList.toggle('active', show);
+    deleteId = show ? deleteId : null;  // Clear deleteId if closing
+}
 
 async function handleSubmit(e) {
     e.preventDefault();
