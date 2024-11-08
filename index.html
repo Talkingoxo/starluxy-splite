@@ -5,10 +5,210 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Split URL Manager</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="styles.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2d2d2d;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0a0;
+            --accent: #0070f3;
+            --border: #404040;
+            --error: #ff4444;
+            --success: #00c853;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .panel {
+            background: var(--bg-secondary);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 8px 12px;
+            margin: 8px 0 16px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-primary);
+        }
+
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: -400px;
+            width: 400px;
+            height: 100vh;
+            background: var(--bg-secondary);
+            transition: left 0.3s ease;
+            padding: 20px;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.2);
+            z-index: 1000;
+            overflow-y: auto;
+        }
+
+        .sidebar.active {
+            left: 0;
+        }
+
+        .sidebar-toggle {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1001;
+            cursor: pointer;
+            width: 40px;
+            height: 40px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .url-item {
+            background: var(--bg-primary);
+            margin: 12px 0;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            position: relative;
+        }
+
+        .url-header {
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .url-content {
+            padding: 16px;
+            border-top: 1px solid var(--border);
+            display: none;
+        }
+
+        .url-content.active {
+            display: block;
+        }
+
+        .url-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .url-actions i {
+            cursor: pointer;
+            padding: 4px;
+        }
+
+        .fa-link:hover {
+            color: var(--accent);
+        }
+
+        .fa-trash:hover {
+            color: var(--error);
+        }
+
+        .latest-url {
+            margin: 10px 0;
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .copy-latest {
+            cursor: pointer;
+            padding: 8px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+        }
+
+        .copy-latest:hover {
+            color: var(--accent);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1002;
+        }
+
+        .modal.active {
+            display: grid;
+            place-items: center;
+        }
+
+        .modal-content {
+            background: var(--bg-secondary);
+            padding: 24px;
+            border-radius: 8px;
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .warning {
+            color: var(--error);
+            margin: 10px 0;
+            display: none;
+        }
+
+        #loginContainer {
+            max-width: 400px;
+            margin: 100px auto;
+            background: var(--bg-secondary);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .logout-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--error);
+        }
+    </style>
 </head>
 <body>
-    <div id="loginContainer" style="max-width: 400px; margin: 100px auto; padding: 20px; background: #2d2d2d; border-radius: 8px;">
+    <div id="loginContainer">
         <h2>Login</h2>
         <form id="loginForm">
             <input type="password" id="password" placeholder="Password" required>
@@ -17,12 +217,20 @@
     </div>
 
     <div id="appContainer" style="display: none;">
-        <button onclick="logout()" style="position: fixed; top: 20px; right: 20px;">Logout</button>
-        
+        <div class="sidebar-toggle">
+            <i class="fas fa-bars fa-lg"></i>
+        </div>
+
+        <button class="logout-btn" onclick="logout()">Logout</button>
+
+        <div class="sidebar">
+            <h2>Your Split URLs</h2>
+            <div id="urlList"></div>
+        </div>
+
         <div class="container">
             <div class="panel">
                 <h2>Create Split URL</h2>
-                <div id="createMessage" class="message"></div>
                 <form id="urlForm">
                     <div>
                         <label for="name">Name (required)</label>
@@ -40,28 +248,26 @@
                         <label for="url2">Second URL</label>
                         <input type="url" id="url2" required>
                     </div>
+                    <p class="warning">Links Can't be the same</p>
+                    <div class="latest-url">
+                        <i class="fas fa-link copy-latest" title="Copy Latest URL"></i>
+                    </div>
                     <button type="submit">Generate Split URL</button>
                 </form>
             </div>
+        </div>
 
-            <div class="panel">
-                <h2>Your Split URLs</h2>
-                <div id="listMessage" class="message"></div>
-                <div id="urlList"></div>
+        <div id="deleteModal" class="modal">
+            <div class="modal-content">
+                <h3>Delete Split URL?</h3>
+                <p>This action cannot be undone.</p>
+                <div class="btn-group">
+                    <button id="confirmDelete">Yes, Delete</button>
+                    <button onclick="toggleModal(false)">Cancel</button>
+                </div>
             </div>
         </div>
     </div>
-
-    <div id="deleteModal" class="modal">
-    <div class="modal-content">
-        <h3>Delete Split URL?</h3>
-        <p>This action cannot be undone.</p>
-        <div class="btn-group">
-            <button id="confirmDelete">Yes, Delete</button>
-            <button onclick="toggleModal(false)">Cancel</button>
-        </div>
-    </div>
-</div>
 
     <script src="script.js"></script>
 </body>
