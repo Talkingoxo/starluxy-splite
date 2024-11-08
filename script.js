@@ -1,10 +1,17 @@
 let authToken = localStorage.getItem('authToken');
-const API_URL = 'https://redirecting-api.aa4530607.workers.dev';
-const REDIRECT_URL = 'https://starluxy-splite.aa4530607.workers.dev';
+const API = {
+    URL: 'https://redirecting-api.aa4530607.workers.dev',
+    REDIRECT: 'https://starluxy-splite.aa4530607.workers.dev'
+};
 let deleteId = null;
 
+const DOM = {
+    get: id => document.getElementById(id),
+    create: tag => document.createElement(tag)
+};
+
 async function apiCall(endpoint, options = {}) {
-    const response = await fetch(`${API_URL}${endpoint}`, {
+    const response = await fetch(`${API.URL}${endpoint}`, {
         ...options,
         headers: {
             'Content-Type': 'application/json',
@@ -16,41 +23,22 @@ async function apiCall(endpoint, options = {}) {
     return response.json();
 }
 
-function toggleModal(show) {
-    document.getElementById('deleteModal').classList.toggle('active', show);
-}
-
-function login(password) {
-    authToken = password;
-    localStorage.setItem('authToken', authToken);
-    document.getElementById('loginContainer').style.display = 'none';
-    document.getElementById('appContainer').style.display = 'block';
-    loadUrls();
-}
-
-function logout() {
-    authToken = null;
-    localStorage.removeItem('authToken');
-    document.getElementById('loginContainer').style.display = 'block';
-    document.getElementById('appContainer').style.display = 'none';
-}
-
 async function handleSubmit(e) {
     e.preventDefault();
     const form = e.target;
     const url1 = form.url1.value;
     const url2 = form.url2.value;
+    const warning = form.querySelector('.warning');
 
-    // Check if URLs are different
     if (url1 === url2) {
+        warning.style.display = 'block';
         return;
     }
 
     const data = {
         campaignId: Date.now().toString(36) + Math.random().toString(36).substr(2),
         name: form.name.value,
-        url1: url1,
-        url2: url2,
+        url1, url2,
         description: form.description.value
     };
 
@@ -61,22 +49,16 @@ async function handleSubmit(e) {
         });
         form.reset();
         
-        const urlList = document.getElementById('urlList');
-        if (urlList.firstChild?.tagName === 'P') {
-            urlList.innerHTML = '';
-        }
-        const newItem = createUrlItem({
-            id: data.campaignId,
-            ...data
-        });
-        urlList.insertBefore(newItem, urlList.firstChild);
+        const urlList = DOM.get('urlList');
+        if (urlList.firstChild?.tagName === 'P') urlList.innerHTML = '';
+        urlList.insertBefore(createUrlItem({ id: data.campaignId, ...data }), urlList.firstChild);
     } catch (err) {
         console.error(err);
     }
 }
 
 function createUrlItem(campaign) {
-    const item = document.createElement('div');
+    const item = DOM.create('div');
     item.className = 'url-item';
     item.dataset.id = campaign.id;
     
@@ -91,8 +73,8 @@ function createUrlItem(campaign) {
         <div class="url-content">
             <p>
                 <strong>Split URL:</strong> 
-                ${REDIRECT_URL}/${campaign.id}
-                <button onclick="navigator.clipboard.writeText('${REDIRECT_URL}/${campaign.id}')">Copy</button>
+                ${API.REDIRECT}/${campaign.id}
+                <button onclick="navigator.clipboard.writeText('${API.REDIRECT}/${campaign.id}')">Copy</button>
             </p>
             ${campaign.description ? `<p><strong>Description:</strong> ${campaign.description}</p>` : ''}
             <p><strong>URL 1:</strong> ${campaign.url1}</p>
@@ -108,7 +90,7 @@ function createUrlItem(campaign) {
 
     item.querySelector('.delete-btn').onclick = () => {
         deleteId = campaign.id;
-        toggleModal(true);
+        DOM.get('deleteModal').classList.toggle('active', true);
     };
 
     return item;
@@ -117,16 +99,16 @@ function createUrlItem(campaign) {
 async function loadUrls() {
     try {
         const data = await apiCall('/list-campaigns');
-        const list = document.getElementById('urlList');
+        const list = DOM.get('urlList');
         list.innerHTML = '';
         
-        const sortedData = data.sort((a, b) => b.id.localeCompare(a.id));
-        
-        if (sortedData.length === 0) {
+        if (!data.length) {
             list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
-        } else {
-            sortedData.forEach(campaign => list.appendChild(createUrlItem(campaign)));
+            return;
         }
+
+        data.sort((a, b) => b.id.localeCompare(a.id))
+            .forEach(campaign => list.appendChild(createUrlItem(campaign)));
     } catch (err) {
         console.error(err);
     }
@@ -144,8 +126,7 @@ async function deleteCampaign() {
         const itemToRemove = document.querySelector(`[data-id="${deleteId}"]`);
         if (itemToRemove) {
             itemToRemove.remove();
-            
-            const list = document.getElementById('urlList');
+            const list = DOM.get('urlList');
             if (!list.children.length) {
                 list.innerHTML = '<p style="color: var(--text-secondary);">No split URLs created yet.</p>';
             }
@@ -154,30 +135,47 @@ async function deleteCampaign() {
         console.error(err);
     }
     
-    toggleModal(false);
+    DOM.get('deleteModal').classList.toggle('active', false);
     deleteId = null;
 }
 
 // URL validation
-document.getElementById('urlForm').addEventListener('input', function(e) {
-    const url1 = this.url1.value;
-    const url2 = this.url2.value;
-    this.querySelector('button[type="submit"]').disabled = url1 === url2;
+DOM.get('urlForm').addEventListener('input', function(e) {
+    const warning = this.querySelector('.warning');
+    const sameUrls = this.url1.value === this.url2.value;
+    warning.style.display = sameUrls ? 'block' : 'none';
+    this.querySelector('button[type="submit"]').disabled = sameUrls;
 });
 
-// Initialize
-document.getElementById('urlForm').onsubmit = handleSubmit;
-document.getElementById('confirmDelete').onclick = deleteCampaign;
-document.getElementById('loginForm').onsubmit = (e) => {
+// Add warning element to form
+const warningEl = DOM.create('p');
+warningEl.className = 'warning';
+warningEl.style.cssText = 'color: #ff4444; margin: 10px 0; display: none;';
+warningEl.textContent = 'Links Can\'t be the same';
+DOM.get('urlForm').insertBefore(warningEl, DOM.get('urlForm').querySelector('button'));
+
+// Init
+const urlForm = DOM.get('urlForm');
+const loginForm = DOM.get('loginForm');
+const loginContainer = DOM.get('loginContainer');
+const appContainer = DOM.get('appContainer');
+
+urlForm.onsubmit = handleSubmit;
+DOM.get('confirmDelete').onclick = deleteCampaign;
+loginForm.onsubmit = e => {
     e.preventDefault();
-    login(document.getElementById('password').value);
+    authToken = loginForm.password.value;
+    localStorage.setItem('authToken', authToken);
+    loginContainer.style.display = 'none';
+    appContainer.style.display = 'block';
+    loadUrls();
 };
 
 if (authToken) {
-    document.getElementById('loginContainer').style.display = 'none';
-    document.getElementById('appContainer').style.display = 'block';
+    loginContainer.style.display = 'none';
+    appContainer.style.display = 'block';
     loadUrls();
 } else {
-    document.getElementById('loginContainer').style.display = 'block';
-    document.getElementById('appContainer').style.display = 'none';
+    loginContainer.style.display = 'block';
+    appContainer.style.display = 'none';
 }
