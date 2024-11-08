@@ -73,18 +73,19 @@ function createUrlItem(campaign) {
     
     item.innerHTML = `
         <div class="url-header">
-            <span>${campaign.name}</span>
+            <span>${campaign.name}</span> 
+            <a href="${splitUrl}" class="split-url" title="Click to Copy" onclick="event.preventDefault(); navigator.clipboard.writeText('${splitUrl}')">${splitUrl}</a>
             <div class="url-actions">
-                <i class="fas fa-link url-icon" onclick="navigator.clipboard.writeText('${splitUrl}')"></i>
                 <i class="fas fa-plus toggle-btn"></i>
                 <i class="fas fa-trash delete-btn"></i>
             </div>
         </div>
         <div class="url-content">
-            <p><strong>Split URL:</strong> ${splitUrl}</p>
-            ${campaign.description ? `<p><strong>Description:</strong> ${campaign.description}</p>` : ''}
-            <p><strong>URL 1:</strong> ${campaign.url1}</p>
-            <p><strong>URL 2:</strong> ${campaign.url2}</p>
+            ${campaign.description ? `<p class="description"><strong>Description:</strong> ${campaign.description}</p>` : ''}
+            <div class="url-buttons">
+                <a href="${campaign.url1}" class="url-button" target="_blank" title="${campaign.url1}">URL 1</a>
+                <a href="${campaign.url2}" class="url-button" target="_blank" title="${campaign.url2}">URL 2</a>
+            </div>
         </div>
     `;
 
