@@ -20,6 +20,9 @@
         
         <div class="sidebar" id="sidebar">
             <h2>Your Split URLs</h2>
+            <div class="sidebar-header">
+                <span>Campaign Stats</span>
+            </div>
             <div id="urlList"></div>
         </div>
         <div class="main-content">
@@ -28,7 +31,7 @@
                 <div id="createMessage" class="message"></div>
                 <form id="urlForm">
                     <div>
-                        <label for="name">Name (required)</label>
+                        <label for="name">Campaign Name (required)</label>
                         <input type="text" id="name" required>
                     </div>
                     <div>
@@ -36,12 +39,14 @@
                         <textarea id="description" rows="2"></textarea>
                     </div>
                     <div>
-                        <label for="url1">First URL</label>
-                        <input type="url" id="url1" required>
+                        <label for="url1">Product URL 1</label>
+                        <input type="url" id="url1" required 
+                               placeholder="https://your-store.com/products/your-product">
                     </div>
                     <div>
-                        <label for="url2">Second URL</label>
-                        <input type="url" id="url2" required>
+                        <label for="url2">Product URL 2</label>
+                        <input type="url" id="url2" required
+                               placeholder="https://your-store.com/products/your-product">
                     </div>
                     <button type="submit">Generate Split URL</button>
                 </form>
@@ -54,7 +59,7 @@
             <p>This action cannot be undone.</p>
             <div class="btn-group">
                 <button id="confirmDelete">Yes, Delete</button>
-                <button onclick="toggleModal(false)">Cancel</button>
+                <button onclick="$('deleteModal').classList.remove('active')">Cancel</button>
             </div>
         </div>
     </div>
