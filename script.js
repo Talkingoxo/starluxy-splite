@@ -1,5 +1,6 @@
 const $ = id => document.getElementById(id);
 let authToken = localStorage.getItem('authToken'), deleteId = null;
+let refreshInterval; // New variable
 
 const API = {
     URL: 'https://redirecting-api.aa4530607.workers.dev',
@@ -22,11 +23,19 @@ async function apiCall(endpoint, options = {}) {
 function displayAuth(isAuth) {
     $('loginContainer').style.display = isAuth ? 'none' : 'block';
     $('appContainer').style.display = isAuth ? 'block' : 'none';
+    
+    // Start auto-refresh when logged in, stop when logged out
+    if (isAuth) {
+        startAutoRefresh();
+    } else {
+        stopAutoRefresh();
+    }
 }
 
 function logout() {
     authToken = null;
     localStorage.removeItem('authToken');
+    stopAutoRefresh(); // Add this
     displayAuth(false);
 }
 
@@ -71,7 +80,6 @@ function createUrlItem(campaign) {
     item.className = 'url-item';
     item.dataset.id = campaign.id;
     
-    // Calculate conversion rates
     const stats = campaign.stats || { 
         url1: { visits: 0, conversions: 0 }, 
         url2: { visits: 0, conversions: 0 } 
@@ -167,6 +175,18 @@ async function deleteCampaign() {
     
     $('deleteModal').classList.toggle('active', false);
     deleteId = null;
+}
+
+// New functions for auto-refresh
+function startAutoRefresh() {
+    loadUrls(); // Initial load
+    refreshInterval = setInterval(loadUrls, 5000);
+}
+
+function stopAutoRefresh() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+    }
 }
 
 const warning = document.createElement('p');
