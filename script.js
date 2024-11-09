@@ -71,6 +71,17 @@ function createUrlItem(campaign) {
     item.className = 'url-item';
     item.dataset.id = campaign.id;
     
+    // Calculate conversion rates
+    const stats = campaign.stats || { 
+        url1: { visits: 0, conversions: 0 }, 
+        url2: { visits: 0, conversions: 0 } 
+    };
+    
+    const url1Rate = stats.url1.visits ? 
+        ((stats.url1.conversions / stats.url1.visits) * 100).toFixed(1) : '0.0';
+    const url2Rate = stats.url2.visits ? 
+        ((stats.url2.conversions / stats.url2.visits) * 100).toFixed(1) : '0.0';
+    
     item.innerHTML = `
         <div class="url-header">
             <span>${campaign.name}</span>
@@ -82,9 +93,21 @@ function createUrlItem(campaign) {
         </div>
         <div class="url-content">
             ${campaign.description ? `<p class="description"><strong>Description:</strong> ${campaign.description}</p>` : ''}
-            <div class="url-buttons">
-                <a href="${campaign.url1}" class="url-button" target="_blank" title="${campaign.url1}">URL 1</a>
-                <a href="${campaign.url2}" class="url-button" target="_blank" title="${campaign.url2}">URL 2</a>
+            <div class="url-stats">
+                <div class="url-stat-group">
+                    <a href="${campaign.url1}" class="url-button" target="_blank" title="${campaign.url1}">URL 1</a>
+                    <div class="stat-details">
+                        <span>${stats.url1.visits} visits</span>
+                        <span>${stats.url1.conversions} sales (${url1Rate}%)</span>
+                    </div>
+                </div>
+                <div class="url-stat-group">
+                    <a href="${campaign.url2}" class="url-button" target="_blank" title="${campaign.url2}">URL 2</a>
+                    <div class="stat-details">
+                        <span>${stats.url2.visits} visits</span>
+                        <span>${stats.url2.conversions} sales (${url2Rate}%)</span>
+                    </div>
+                </div>
             </div>
         </div>
     `;
