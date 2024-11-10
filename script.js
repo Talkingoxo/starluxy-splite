@@ -1,6 +1,5 @@
 const $ = id => document.getElementById(id);
 let authToken = localStorage.getItem('authToken'), deleteId = null;
-let refreshInterval; // New variable
 
 const API = {
     URL: 'https://redirecting-api.aa4530607.workers.dev',
@@ -23,19 +22,11 @@ async function apiCall(endpoint, options = {}) {
 function displayAuth(isAuth) {
     $('loginContainer').style.display = isAuth ? 'none' : 'block';
     $('appContainer').style.display = isAuth ? 'block' : 'none';
-    
-    // Start auto-refresh when logged in, stop when logged out
-    if (isAuth) {
-        startAutoRefresh();
-    } else {
-        stopAutoRefresh();
-    }
 }
 
 function logout() {
     authToken = null;
     localStorage.removeItem('authToken');
-    stopAutoRefresh(); // Add this
     displayAuth(false);
 }
 
@@ -89,7 +80,7 @@ function createUrlItem(campaign) {
         ((stats.url1.conversions / stats.url1.visits) * 100).toFixed(1) : '0.0';
     const url2Rate = stats.url2.visits ? 
         ((stats.url2.conversions / stats.url2.visits) * 100).toFixed(1) : '0.0';
-    
+
     item.innerHTML = `
         <div class="url-header">
             <span>${campaign.name}</span>
@@ -177,24 +168,6 @@ async function deleteCampaign() {
     deleteId = null;
 }
 
-// New functions for auto-refresh
-function startAutoRefresh() {
-    loadUrls(); // Initial load
-    refreshInterval = setInterval(loadUrls, 5000);
-}
-
-function stopAutoRefresh() {
-    if (refreshInterval) {
-        clearInterval(refreshInterval);
-    }
-}
-
-const warning = document.createElement('p');
-warning.className = 'warning';
-warning.style.cssText = 'color: #ff4444; margin: 10px 0; display: none;';
-warning.textContent = 'Links Can\'t be the same';
-$('urlForm').insertBefore(warning, $('urlForm').querySelector('button'));
-
 $('urlForm').addEventListener('input', e => {
     if (e.target.type === 'url') {
         const warning = e.target.form.querySelector('.warning');
@@ -203,6 +176,12 @@ $('urlForm').addEventListener('input', e => {
         }
     }
 });
+
+const warning = document.createElement('p');
+warning.className = 'warning';
+warning.style.cssText = 'color: #ff4444; margin: 10px 0; display: none;';
+warning.textContent = 'Links Can\'t be the same';
+$('urlForm').insertBefore(warning, $('urlForm').querySelector('button'));
 
 $('urlForm').onsubmit = handleSubmit;
 $('confirmDelete').onclick = deleteCampaign;
