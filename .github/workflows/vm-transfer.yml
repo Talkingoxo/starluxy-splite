@@ -1,0 +1,26 @@
+name: Temporary VM artifact transfer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vm-transfer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  transfer:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create transfer marker
+        run: |
+          mkdir -p transfer
+          printf 'vm-transfer-ready\n' > transfer/marker.txt
+      - name: Upload marker
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-transfer-marker
+          path: transfer/marker.txt
+          retention-days: 1
