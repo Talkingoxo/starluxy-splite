@@ -1,6 +1,8 @@
 name: Temporary VM artifact transfer
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
     paths:
