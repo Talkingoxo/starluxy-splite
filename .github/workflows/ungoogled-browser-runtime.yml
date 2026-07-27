@@ -1,0 +1,96 @@
+name: Ungoogled browser runtime
+
+on:
+  push:
+    branches:
+      - agent/ungoogled-browser-runtime-20260727
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download official portable Ungoogled Chromium release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UC_VERSION: 150.0.7871.186-1
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf browser-work
+          mkdir -p browser-work/download browser-work/runtime
+          cd browser-work/download
+          gh release download "$UC_VERSION" \
+            --repo ungoogled-software/ungoogled-chromium-portablelinux \
+            --pattern 'ungoogled-chromium_*_linux.tar.xz'
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 1
+          ARCHIVE="$(find . -maxdepth 1 -type f -name '*.tar.xz' -print -quit)"
+          sha256sum "$ARCHIVE" | tee ../source.sha256
+          tar -xJf "$ARCHIVE" -C ../runtime --strip-components=1
+
+      - name: Verify browser and headless operation
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd browser-work/runtime
+          BROWSER=""
+          for candidate in chrome chromium ungoogled-chromium chrome-wrapper; do
+            if [ -x "$candidate" ]; then BROWSER="$candidate"; break; fi
+          done
+          if [ -z "$BROWSER" ]; then
+            BROWSER="$(find . -maxdepth 3 -type f -perm -111 \( -name chrome -o -name chromium -o -name ungoogled-chromium \) -print -quit)"
+          fi
+          test -n "$BROWSER"
+          printf '%s\n' "$BROWSER" | tee ../browser-relative-path.txt
+          "./$BROWSER" --version | tee ../browser-version.txt
+          timeout 30 "./$BROWSER" \
+            --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+            --no-first-run --no-default-browser-check --disable-background-networking \
+            --disable-component-update --disable-sync --disable-extensions \
+            --dump-dom 'data:text/html,<title>Hermes Browser Test</title><h1>ready</h1>' \
+            > ../headless-smoke.html
+          grep -q 'ready' ../headless-smoke.html
+
+      - name: Prune obvious desktop-only payload
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd browser-work/runtime
+          # Retain the engine, resources, codecs and sandbox files. Remove only
+          # optional locale/help/desktop integration material. English remains.
+          if [ -d locales ]; then
+            find locales -type f ! -name 'en-US.pak' ! -name 'en-GB.pak' -delete
+          fi
+          rm -rf swiftshader/libEGL.so swiftshader/libGLESv2.so 2>/dev/null || true
+          rm -rf resources/inspector 2>/dev/null || true
+          find . -type f \( -name '*.desktop' -o -name '*.png' \) -path '*/product_logo*' -delete 2>/dev/null || true
+          du -sh . | tee ../runtime-size.txt
+
+      - name: Package runtime
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd browser-work
+          tar --numeric-owner --owner=0 --group=0 -czf ungoogled-browser-runtime.tar.gz \
+            runtime browser-relative-path.txt browser-version.txt source.sha256 headless-smoke.html runtime-size.txt
+          sha256sum ungoogled-browser-runtime.tar.gz > ungoogled-browser-runtime.tar.gz.sha256
+
+      - name: Upload runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: ungoogled-browser-runtime
+          path: |
+            browser-work/ungoogled-browser-runtime.tar.gz
+            browser-work/ungoogled-browser-runtime.tar.gz.sha256
+            browser-work/browser-version.txt
+            browser-work/source.sha256
+            browser-work/headless-smoke.html
+            browser-work/runtime-size.txt
+          retention-days: 7
+          if-no-files-found: error
