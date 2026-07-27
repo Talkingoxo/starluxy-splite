@@ -1,0 +1,177 @@
+name: Hermes overlay retry
+
+on:
+  push:
+    branches:
+      - agent/hermes-qemu-bootstrap-20260727
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare build
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends jq curl ca-certificates zstd
+          rm -rf hermes-build
+          mkdir -p hermes-build/work hermes-build/overlay/opt \
+            hermes-build/overlay/etc/ssl/certs \
+            hermes-build/overlay/var/lib/hermes \
+            hermes-build/overlay/root hermes-build/logs
+
+      - name: Download Python and Hermes from GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          cd hermes-build/work
+          gh api repos/astral-sh/python-build-standalone/releases/latest > python-release.json
+          PY_URL="$(jq -r '.assets[] | select(.name | test("^cpython-3\\.13\\.[0-9]+\\+.*-x86_64-unknown-linux-gnu-install_only_stripped\\.tar\\.(gz|zst)$")) | .browser_download_url' python-release.json | head -n1)"
+          test -n "$PY_URL"
+          echo "$PY_URL" | tee ../python-source-url.txt
+          curl -fL --retry 5 --retry-delay 2 "$PY_URL" -o python-archive
+          case "$PY_URL" in
+            *.tar.gz) tar -xzf python-archive ;;
+            *.tar.zst) tar --zstd -xf python-archive ;;
+            *) exit 1 ;;
+          esac
+          test -x python/bin/python3
+
+          gh api repos/NousResearch/hermes-agent/actions/artifacts/7757235599/zip > hermes-artifact.zip
+          unzip -q hermes-artifact.zip -d hermes-artifact
+          WHEEL="$(find hermes-artifact -type f -name 'hermes_agent-0.17.0-py3-none-any.whl' | head -n1)"
+          test -f "$WHEEL"
+          cp "$WHEEL" ./hermes_agent-0.17.0-py3-none-any.whl
+          sha256sum hermes_agent-0.17.0-py3-none-any.whl | tee ../logs/hermes-wheel.sha256
+
+      - name: Install and import Hermes
+        run: |
+          set -euxo pipefail
+          cd hermes-build/work
+          python/bin/python3 -m ensurepip --upgrade 2>&1 | tee ../logs/ensurepip.log
+          python/bin/python3 -m pip install --no-cache-dir ./hermes_agent-0.17.0-py3-none-any.whl 2>&1 | tee ../logs/hermes-install.log
+          python/bin/python3 -c 'import hermes_cli, fastapi, uvicorn; print("Hermes imports passed")' | tee ../logs/import-test.log
+          python/bin/python3 -m hermes_cli.main --version 2>&1 | tee ../logs/hermes-version.log
+
+      - name: Smoke-test local dashboard
+        run: |
+          set -euxo pipefail
+          cd hermes-build
+          mkdir -p smoke-home
+          HOME="$PWD/smoke-home" HERMES_HOME="$PWD/smoke-home/.hermes" \
+            "$PWD/work/python/bin/python3" -m hermes_cli.main dashboard \
+            --host 127.0.0.1 --port 19119 --no-open --skip-build \
+            > logs/dashboard-smoke.log 2>&1 &
+          pid=$!
+          ok=0
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:19119/ -o dashboard-index.html; then ok=1; break; fi
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          cat logs/dashboard-smoke.log
+          test "$ok" = 1
+          grep -qi '<html\|<!doctype' dashboard-index.html
+
+      - name: Build microbase overlay
+        run: |
+          set -euxo pipefail
+          cd hermes-build
+          PYVER="$(work/python/bin/python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+          rm -rf "work/python/lib/python${PYVER}/test" \
+                 "work/python/lib/python${PYVER}/idlelib" \
+                 "work/python/lib/python${PYVER}/tkinter" || true
+          find work/python -type d -name '__pycache__' -prune -exec rm -rf '{}' + || true
+          find work/python -type f -name '*.pyc' -delete || true
+          find work/python -type d \( -name tests -o -name test \) -prune -exec rm -rf '{}' + || true
+          rm -rf work/python/share/doc work/python/share/man || true
+          mv work/python overlay/opt/python
+
+          cat > overlay/opt/hermes-start <<'SH'
+          #!/bin/busybox sh
+          export PATH=/opt/python/bin:/bin:/sbin:/usr/bin:/usr/sbin
+          export HOME=/root
+          export HERMES_HOME=/var/lib/hermes
+          export PYTHONUNBUFFERED=1
+          mkdir -p /var/lib/hermes /root/.hermes /run/hermes
+          exec /opt/python/bin/python3 -m hermes_cli.main dashboard \
+            --host 0.0.0.0 --port 9119 --no-open --skip-build --insecure
+          SH
+          chmod 0755 overlay/opt/hermes-start
+          cp /etc/ssl/certs/ca-certificates.crt overlay/etc/ssl/certs/
+          cp /etc/nsswitch.conf overlay/etc/ || true
+          cp /etc/services overlay/etc/ || true
+          cp /etc/protocols overlay/etc/ || true
+          cp /etc/gai.conf overlay/etc/ || true
+
+          python3 - <<'PY'
+          import pathlib, shutil, subprocess
+          root = pathlib.Path('overlay')
+          copied = set()
+          for elf in (root / 'opt/python').rglob('*'):
+              try:
+                  if not elf.is_file() or elf.is_symlink() or elf.open('rb').read(4) != b'\x7fELF':
+                      continue
+              except OSError:
+                  continue
+              out = subprocess.run(['ldd', str(elf)], text=True, capture_output=True).stdout
+              for line in out.splitlines():
+                  line = line.strip()
+                  token = line.split('=>',1)[1].strip().split(' ',1)[0] if '=>' in line else (line.split(' ',1)[0] if line.startswith('/') else '')
+                  if not token.startswith('/') or token in copied:
+                      continue
+                  src = pathlib.Path(token)
+                  if not src.exists():
+                      continue
+                  copied.add(token)
+                  dst = root / token.lstrip('/')
+                  dst.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(src, dst, follow_symlinks=True)
+          for token in ['/lib/x86_64-linux-gnu/libnss_dns.so.2','/lib/x86_64-linux-gnu/libnss_files.so.2','/lib/x86_64-linux-gnu/libresolv.so.2','/lib64/ld-linux-x86-64.so.2']:
+              src=pathlib.Path(token)
+              if src.exists() and token not in copied:
+                  dst=root/token.lstrip('/'); dst.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(src,dst,follow_symlinks=True)
+          print('runtime libraries:', len(copied))
+          PY
+
+          tar --numeric-owner --owner=0 --group=0 -C overlay -czf hermes-microbase-overlay.tar.gz .
+          sha256sum hermes-microbase-overlay.tar.gz > hermes-microbase-overlay.tar.gz.sha256
+          du -sh overlay hermes-microbase-overlay.tar.gz | tee logs/overlay-size.log
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-overlay-retry-diagnostics
+          path: |
+            hermes-build/logs/
+            hermes-build/python-source-url.txt
+            hermes-build/dashboard-index.html
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload overlay
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-microbase-overlay
+          path: |
+            hermes-build/hermes-microbase-overlay.tar.gz
+            hermes-build/hermes-microbase-overlay.tar.gz.sha256
+            hermes-build/python-source-url.txt
+            hermes-build/logs/dashboard-smoke.log
+            hermes-build/dashboard-index.html
+          if-no-files-found: error
+          retention-days: 7
