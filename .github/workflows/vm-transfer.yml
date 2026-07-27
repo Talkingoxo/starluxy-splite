@@ -1,9 +1,7 @@
-name: Temporary VM artifact transfer
+name: Temporary Debian QEMU package transfer
 
 on:
   pull_request:
-    branches: [main]
-  push:
     branches: [main]
     paths:
       - '.github/workflows/vm-transfer.yml'
@@ -16,13 +14,40 @@ jobs:
   transfer:
     runs-on: ubuntu-24.04
     steps:
-      - name: Create transfer marker
+      - name: Download official Debian 13 QEMU package set
+        shell: bash
         run: |
-          mkdir -p transfer
-          printf 'vm-transfer-ready\n' > transfer/marker.txt
-      - name: Upload marker
+          set -euxo pipefail
+          mkdir -p transfer/qemu-debs
+          docker run --rm \
+            -v "$PWD/transfer/qemu-debs:/out" \
+            debian:trixie-slim \
+            bash -lc '
+              set -euxo pipefail
+              apt-get update
+              apt-get install -y --no-install-recommends --download-only \
+                qemu-system-x86 \
+                qemu-utils \
+                qemu-system-common \
+                qemu-system-data \
+                seabios \
+                ipxe-qemu
+              cp -v /var/cache/apt/archives/*.deb /out/
+            '
+          cd transfer/qemu-debs
+          sha256sum -- *.deb > SHA256SUMS
+          dpkg-deb -f qemu-system-x86_*.deb Package Version Architecture > QEMU_SYSTEM_X86.txt
+          dpkg-deb -f qemu-utils_*.deb Package Version Architecture > QEMU_UTILS.txt
+          tar -czf ../debian13-qemu-offline-bundle.tar.gz .
+          cd ..
+          sha256sum debian13-qemu-offline-bundle.tar.gz > debian13-qemu-offline-bundle.tar.gz.sha256
+          du -sh . qemu-debs
+
+      - name: Upload official Debian QEMU bundle
         uses: actions/upload-artifact@v4
         with:
-          name: vm-transfer-marker
-          path: transfer/marker.txt
+          name: debian13-qemu-offline-bundle
+          path: transfer/
           retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
