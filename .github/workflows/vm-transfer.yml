@@ -1,4 +1,4 @@
-name: Temporary VM artifact transfer
+name: Temporary official Fedora minimal installer transfer
 
 on:
   pull_request:
@@ -12,47 +12,110 @@ jobs:
   transfer:
     runs-on: ubuntu-24.04
     steps:
-      - name: Reconstruct exact committed TinyCore ISO
+      - name: Download verify and split official Fedora Server DVD
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p transfer/qemu-debs
-          BASE='https://testing-ff9x-git-tinycore-vm-bootstrap-alexs-projects-d77c3382.vercel.app/api/bootstrap-file'
-          META=$(curl -fsSL "$BASE?name=iso&meta=1")
-          SIZE=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["size"])' <<<"$META")
-          OUT=transfer/TinyCore-Modern-Pure64.iso
-          : > "$OUT"
-          CHUNK=$((2*1024*1024))
-          OFFSET=0
-          while [ "$OFFSET" -lt "$SIZE" ]; do
-            LENGTH=$CHUNK
-            if [ $((OFFSET + LENGTH)) -gt "$SIZE" ]; then LENGTH=$((SIZE - OFFSET)); fi
-            curl -fsSL "$BASE?name=iso&offset=$OFFSET&length=$LENGTH" | base64 -d >> "$OUT"
-            OFFSET=$((OFFSET + LENGTH))
-          done
-          test "$(stat -c %s "$OUT")" -eq "$SIZE"
-          echo '82db77b13dd13633a82fa600dc224957cd0a750fa948fe121c115fb438045dac  transfer/TinyCore-Modern-Pure64.iso' | sha256sum -c -
-          sha256sum "$OUT" > transfer/TinyCore-Modern-Pure64.iso.sha256
+          ISO='Fedora-Server-dvd-x86_64-44-1.7.iso'
+          CHECKSUM='Fedora-Server-44-1.7-x86_64-CHECKSUM'
+          BASE='https://download.fedoraproject.org/pub/fedora/linux/releases/44/Server/x86_64/iso'
+          mkdir -p transfer/manifest transfer/parts
+          cd transfer
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output "$ISO" "$BASE/$ISO"
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output "manifest/$CHECKSUM" "$BASE/$CHECKSUM"
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output manifest/fedora.gpg https://fedoraproject.org/fedora.gpg
+          gpgv --keyring ./manifest/fedora.gpg \
+            --output manifest/VERIFIED-CHECKSUM "manifest/$CHECKSUM"
+          sha256sum -c --ignore-missing manifest/VERIFIED-CHECKSUM
+          sha256sum "$ISO" > manifest/ISO.sha256
+          stat -c '%n %s bytes' "$ISO" | tee manifest/ISO.stat
+          split --bytes=480M --numeric-suffixes=0 --suffix-length=2 \
+            "$ISO" "parts/$ISO.part-"
+          sha256sum parts/* > manifest/PARTS.sha256
+          stat -c '%n %s bytes' parts/* | tee manifest/PARTS.stat
+          test "$(find parts -maxdepth 1 -type f | wc -l)" -eq 8
+          rm "$ISO"
 
-      - name: Download complete Debian 13 QEMU package set
-        shell: bash
-        run: |
-          set -euxo pipefail
-          docker run --rm -v "$PWD/transfer/qemu-debs:/out" debian:trixie-slim bash -lc '
-            set -eux
-            apt-get update
-            apt-get install -y --no-install-recommends --download-only \
-              qemu-system-x86 qemu-utils qemu-system-common qemu-system-data \
-              seabios ipxe-qemu fdisk
-            cp -v /var/cache/apt/archives/*.deb /out/
-          '
-          (cd transfer/qemu-debs && sha256sum *.deb > SHA256SUMS)
-          du -sh transfer transfer/qemu-debs
-
-      - name: Upload VM transfer bundle
+      - name: Upload Fedora installer part 00
         uses: actions/upload-artifact@v4
         with:
-          name: tinycore-qemu-offline-bundle
-          path: transfer/
+          name: fedora-server-44-dvd-part-00
+          path: transfer/parts/Fedora-Server-dvd-x86_64-44-1.7.iso.part-00
           retention-days: 1
           compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Fedora installer part 01
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-server-44-dvd-part-01
+          path: transfer/parts/Fedora-Server-dvd-x86_64-44-1.7.iso.part-01
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Fedora installer part 02
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-server-44-dvd-part-02
+          path: transfer/parts/Fedora-Server-dvd-x86_64-44-1.7.iso.part-02
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Fedora installer part 03
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-server-44-dvd-part-03
+          path: transfer/parts/Fedora-Server-dvd-x86_64-44-1.7.iso.part-03
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Fedora installer part 04
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-server-44-dvd-part-04
+          path: transfer/parts/Fedora-Server-dvd-x86_64-44-1.7.iso.part-04
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Fedora installer part 05
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-server-44-dvd-part-05
+          path: transfer/parts/Fedora-Server-dvd-x86_64-44-1.7.iso.part-05
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Fedora installer part 06
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-server-44-dvd-part-06
+          path: transfer/parts/Fedora-Server-dvd-x86_64-44-1.7.iso.part-06
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Fedora installer part 07
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-server-44-dvd-part-07
+          path: transfer/parts/Fedora-Server-dvd-x86_64-44-1.7.iso.part-07
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Fedora installer verification manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-server-44-dvd-manifest
+          path: transfer/manifest/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
