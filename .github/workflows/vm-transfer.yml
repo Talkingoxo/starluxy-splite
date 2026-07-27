@@ -12,7 +12,7 @@ jobs:
   transfer:
     runs-on: ubuntu-24.04
     steps:
-      - name: Download and verify official Fedora Cloud Base image
+      - name: Download verify and split official Fedora Cloud Base image
         shell: bash
         run: |
           set -euxo pipefail
@@ -20,25 +20,58 @@ jobs:
           CHECKSUM='Fedora-Cloud-44-1.7-x86_64-CHECKSUM'
           BASE='https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images'
           EXPECTED='28680fe5b371a5a82ebf43a31926e086a168e59949d03969c5093e7071f90b7f'
-          mkdir -p transfer
+          mkdir -p transfer/manifest transfer/parts
           cd transfer
           curl --fail --location --retry 5 --retry-all-errors \
             --output "$IMAGE" "$BASE/$IMAGE"
           curl --fail --location --retry 5 --retry-all-errors \
-            --output "$CHECKSUM" "$BASE/$CHECKSUM"
+            --output "manifest/$CHECKSUM" "$BASE/$CHECKSUM"
           curl --fail --location --retry 5 --retry-all-errors \
-            --output fedora.gpg https://fedoraproject.org/fedora.gpg
-          gpgv --keyring ./fedora.gpg --output VERIFIED-CHECKSUM "$CHECKSUM"
-          sha256sum -c --ignore-missing VERIFIED-CHECKSUM
+            --output manifest/fedora.gpg https://fedoraproject.org/fedora.gpg
+          gpgv --keyring ./manifest/fedora.gpg --output manifest/VERIFIED-CHECKSUM "manifest/$CHECKSUM"
+          sha256sum -c --ignore-missing manifest/VERIFIED-CHECKSUM
           printf '%s  %s\n' "$EXPECTED" "$IMAGE" | sha256sum -c -
-          sha256sum "$IMAGE" > "$IMAGE.sha256"
-          stat -c '%n %s bytes' "$IMAGE"
+          sha256sum "$IMAGE" > manifest/IMAGE.sha256
+          stat -c '%n %s bytes' "$IMAGE" | tee manifest/IMAGE.stat
+          split --bytes=200M --numeric-suffixes=0 --suffix-length=2 \
+            "$IMAGE" "parts/$IMAGE.part-"
+          sha256sum parts/* > manifest/PARTS.sha256
+          stat -c '%n %s bytes' parts/* | tee manifest/PARTS.stat
+          test "$(find parts -maxdepth 1 -type f | wc -l)" -eq 3
+          rm "$IMAGE"
 
-      - name: Upload verified official Fedora image
+      - name: Upload Fedora image part 00
         uses: actions/upload-artifact@v4
         with:
-          name: fedora-cloud-base-44-x86_64
-          path: transfer/
+          name: fedora-cloud-base-44-part-00
+          path: transfer/parts/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2.part-00
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Fedora image part 01
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-cloud-base-44-part-01
+          path: transfer/parts/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2.part-01
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Fedora image part 02
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-cloud-base-44-part-02
+          path: transfer/parts/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2.part-02
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Fedora verification manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-cloud-base-44-manifest
+          path: transfer/manifest/
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
