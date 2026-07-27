@@ -77,7 +77,7 @@ function registerPane() {
     area: PANES_AREA,
     title: 'Browser',
     data: {
-      placement: 'right',
+      placement: 'main',
       dock: { pane: 'workspace', pos: 'right' },
       width: 'clamp(22rem, 36vw, 48rem)',
       minWidth: '18rem',
