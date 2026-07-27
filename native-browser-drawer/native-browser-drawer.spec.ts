@@ -36,6 +36,10 @@ async function waitForNativeChat(page: Page) {
   await expect(chat.getByText('Setup Required', { exact: true })).toHaveCount(0)
 }
 
+async function browserToggle(page: Page) {
+  return page.getByRole('button', { name: /^(Open|Close) browser$/ }).first()
+}
+
 async function clickSettings(page: Page) {
   const button = page.getByRole('button', { name: /settings/i }).first()
   await expect(button).toBeVisible({ timeout: 20_000 })
@@ -77,7 +81,7 @@ test('native Chat and Settings survive drawer open, resize, close, and restart',
     await waitForAppReady({ ...launched, mock, mockUrl: mock.url, sandbox, cleanup: async () => {} }, 120_000)
     let page = launched.page
     await waitForNativeChat(page)
-    await page.getByTestId('native-browser-toggle').waitFor({ state: 'visible', timeout: 30_000 })
+    await expect(await browserToggle(page)).toBeVisible({ timeout: 30_000 })
 
     await page.screenshot({ path: testInfo.outputPath('01-chat-original.png') })
     const originalChatWidth = (await page.locator('[data-chat-surface]').boundingBox())?.width ?? 0
@@ -91,7 +95,7 @@ test('native Chat and Settings survive drawer open, resize, close, and restart',
     await waitForNativeChat(page)
     await page.screenshot({ path: testInfo.outputPath('03-chat-restored.png') })
 
-    await page.getByTestId('native-browser-toggle').click()
+    await (await browserToggle(page)).click()
     const drawer = page.getByTestId('native-browser-drawer')
     await expect(drawer).toBeVisible()
     await expect(page.locator('[data-chat-surface]')).toBeVisible()
@@ -124,14 +128,14 @@ test('native Chat and Settings survive drawer open, resize, close, and restart',
     page = launched.page
     await waitForAppReady({ ...launched, mock, mockUrl: mock.url, sandbox, cleanup: async () => {} }, 120_000)
     await waitForNativeChat(page)
-    await page.getByTestId('native-browser-toggle').waitFor({ state: 'visible', timeout: 30_000 })
+    await expect(await browserToggle(page)).toBeVisible({ timeout: 30_000 })
     await expect(page.getByTestId('native-browser-drawer')).toHaveCount(0)
 
     await clickSettings(page)
     await closeSettings(page)
     await waitForNativeChat(page)
 
-    await page.getByTestId('native-browser-toggle').click()
+    await (await browserToggle(page)).click()
     await expect(page.getByTestId('native-browser-drawer')).toBeVisible()
     await dragDivider(page, -100)
     await dragDivider(page, 120)
