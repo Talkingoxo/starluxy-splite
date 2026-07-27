@@ -1,4 +1,4 @@
-name: Temporary Debian QEMU package transfer
+name: Temporary official Fedora Cloud image transfer
 
 on:
   pull_request:
@@ -12,39 +12,32 @@ jobs:
   transfer:
     runs-on: ubuntu-24.04
     steps:
-      - name: Download official Debian 13 QEMU package set
+      - name: Download and verify official Fedora Cloud Base image
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p transfer/qemu-debs
-          docker run --rm \
-            -v "$PWD/transfer/qemu-debs:/out" \
-            debian:trixie-slim \
-            bash -lc '
-              set -euxo pipefail
-              apt-get update
-              apt-get install -y --no-install-recommends --download-only \
-                qemu-system-x86 \
-                qemu-utils \
-                qemu-system-common \
-                qemu-system-data \
-                seabios \
-                ipxe-qemu
-              cp -v /var/cache/apt/archives/*.deb /out/
-            '
-          cd transfer/qemu-debs
-          sha256sum -- *.deb > SHA256SUMS
-          dpkg-deb -f qemu-system-x86_*.deb Package Version Architecture > QEMU_SYSTEM_X86.txt
-          dpkg-deb -f qemu-utils_*.deb Package Version Architecture > QEMU_UTILS.txt
-          tar -czf ../debian13-qemu-offline-bundle.tar.gz .
-          cd ..
-          sha256sum debian13-qemu-offline-bundle.tar.gz > debian13-qemu-offline-bundle.tar.gz.sha256
-          du -sh . qemu-debs
+          IMAGE='Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2'
+          CHECKSUM='Fedora-Cloud-44-1.7-x86_64-CHECKSUM'
+          BASE='https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images'
+          EXPECTED='28680fe5b371a5a82ebf43a31926e086a168e59949d03969c5093e7071f90b7f'
+          mkdir -p transfer
+          cd transfer
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output "$IMAGE" "$BASE/$IMAGE"
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output "$CHECKSUM" "$BASE/$CHECKSUM"
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output fedora.gpg https://fedoraproject.org/fedora.gpg
+          gpgv --keyring ./fedora.gpg --output VERIFIED-CHECKSUM "$CHECKSUM"
+          sha256sum -c --ignore-missing VERIFIED-CHECKSUM
+          printf '%s  %s\n' "$EXPECTED" "$IMAGE" | sha256sum -c -
+          sha256sum "$IMAGE" > "$IMAGE.sha256"
+          stat -c '%n %s bytes' "$IMAGE"
 
-      - name: Upload official Debian QEMU bundle
+      - name: Upload verified official Fedora image
         uses: actions/upload-artifact@v4
         with:
-          name: debian13-qemu-offline-bundle
+          name: fedora-cloud-base-44-x86_64
           path: transfer/
           retention-days: 1
           compression-level: 0
