@@ -1,18 +1,10 @@
-import { useSyncExternalStore } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
-import { Button, Codicon, Input, PANES_AREA, TITLEBAR_AREAS, Tip } from '@hermes/plugin-sdk'
+import { Button, Codicon, Input, PANES_AREA } from '@hermes/plugin-sdk'
 
 let pluginContext = null
 let paneDisposer = null
+let toolDisposer = null
 let open = false
-const listeners = new Set()
-
-const subscribe = callback => {
-  listeners.add(callback)
-  return () => listeners.delete(callback)
-}
-const snapshot = () => open
-const emit = () => listeners.forEach(callback => callback())
 
 function DrawerPane() {
   return jsxs('section', {
@@ -88,6 +80,24 @@ function registerPane() {
   })
 }
 
+function registerTool() {
+  if (!pluginContext) return
+
+  toolDisposer?.()
+  toolDisposer = pluginContext.register({
+    id: 'toggle',
+    area: 'titleBar.tools.right',
+    order: 900,
+    data: {
+      id: 'native-browser-drawer-toggle',
+      label: open ? 'Close browser' : 'Open browser',
+      active: open,
+      icon: jsx(Codicon, { name: 'globe', size: '0.8rem' }),
+      onSelect: () => setDrawerOpen(!open)
+    }
+  })
+}
+
 function setDrawerOpen(next) {
   if (next === open) return
 
@@ -98,25 +108,7 @@ function setDrawerOpen(next) {
     paneDisposer?.()
     paneDisposer = null
   }
-  emit()
-}
-
-function DrawerToggle() {
-  const isOpen = useSyncExternalStore(subscribe, snapshot, snapshot)
-
-  return jsx(Tip, {
-    label: isOpen ? 'Close browser' : 'Open browser',
-    children: jsx(Button, {
-      'aria-label': isOpen ? 'Close browser' : 'Open browser',
-      'aria-pressed': isOpen,
-      'data-testid': 'native-browser-toggle',
-      className: isOpen ? 'bg-(--ui-control-active-background)' : '',
-      onClick: () => setDrawerOpen(!isOpen),
-      size: 'icon-xs',
-      variant: 'ghost',
-      children: jsx(Codicon, { name: 'globe', size: '0.8rem' })
-    })
-  })
+  registerTool()
 }
 
 export default {
@@ -125,11 +117,6 @@ export default {
   defaultEnabled: true,
   register(ctx) {
     pluginContext = ctx
-    ctx.register({
-      id: 'toggle',
-      area: TITLEBAR_AREAS.right,
-      order: 900,
-      render: () => jsx(DrawerToggle, {})
-    })
+    registerTool()
   }
 }
