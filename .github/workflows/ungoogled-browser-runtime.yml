@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/ungoogled-browser-runtime-20260727
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -62,12 +65,9 @@ jobs:
         run: |
           set -euxo pipefail
           cd browser-work/runtime
-          # Retain the engine, resources, codecs and sandbox files. Remove only
-          # optional locale/help/desktop integration material. English remains.
           if [ -d locales ]; then
             find locales -type f ! -name 'en-US.pak' ! -name 'en-GB.pak' -delete
           fi
-          rm -rf swiftshader/libEGL.so swiftshader/libGLESv2.so 2>/dev/null || true
           rm -rf resources/inspector 2>/dev/null || true
           find . -type f \( -name '*.desktop' -o -name '*.png' \) -path '*/product_logo*' -delete 2>/dev/null || true
           du -sh . | tee ../runtime-size.txt
