@@ -1,0 +1,176 @@
+name: Hermes QEMU bootstrap
+
+on:
+  push:
+    branches:
+      - agent/hermes-qemu-bootstrap-20260727
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Debian 13 QEMU package bundle
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf transfer
+          mkdir -p transfer/qemu-debs
+          docker run --rm \
+            -v "$PWD/transfer/qemu-debs:/out" \
+            debian:trixie-slim \
+            bash -lc '
+              set -euxo pipefail
+              apt-get update
+              apt-get install -y --no-install-recommends --download-only \
+                qemu-system-x86 qemu-utils qemu-system-common \
+                qemu-system-data seabios ipxe-qemu
+              cp -v /var/cache/apt/archives/*.deb /out/
+            '
+          cd transfer/qemu-debs
+          sha256sum -- *.deb > SHA256SUMS
+          cd ..
+          tar -czf debian13-qemu-offline-bundle.tar.gz qemu-debs
+          sha256sum debian13-qemu-offline-bundle.tar.gz > debian13-qemu-offline-bundle.tar.gz.sha256
+
+      - name: Build relocatable Hermes microbase overlay
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends jq file ca-certificates curl
+          rm -rf hermes-build
+          mkdir -p hermes-build/work hermes-build/overlay/opt \
+            hermes-build/overlay/etc/ssl/certs \
+            hermes-build/overlay/var/lib/hermes hermes-build/overlay/root
+          cd hermes-build/work
+
+          PY_URL="$(curl -fsSL https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest \
+            | jq -r '.assets[].browser_download_url' \
+            | grep -E '/cpython-3\.13\.[0-9]+\+[^/]+-x86_64-unknown-linux-gnu-install_only_stripped\.tar\.gz$' \
+            | head -n1)"
+          test -n "$PY_URL"
+          echo "$PY_URL" > ../python-source-url.txt
+          curl -fL --retry 5 --retry-delay 2 "$PY_URL" -o python.tar.gz
+          tar -xzf python.tar.gz
+          test -x python/bin/python3
+          python/bin/python3 -m ensurepip --upgrade || true
+          python/bin/python3 -m pip install --no-cache-dir --upgrade pip
+          python/bin/python3 -m pip install --no-cache-dir 'hermes-agent==0.17.0'
+          python/bin/python3 -c 'import hermes_cli, fastapi, uvicorn; print("Hermes imports passed")'
+
+          rm -rf python/lib/python3.13/test python/lib/python3.13/idlelib python/lib/python3.13/tkinter || true
+          find python -type d -name '__pycache__' -prune -exec rm -rf '{}' + || true
+          find python -type f -name '*.pyc' -delete || true
+          find python -type d \( -name tests -o -name test \) -prune -exec rm -rf '{}' + || true
+          rm -rf python/share/doc python/share/man python/lib/python3.13/site-packages/pip* || true
+          mv python ../overlay/opt/python
+          cd ..
+
+          cat > overlay/opt/hermes-start <<'SH'
+          #!/bin/busybox sh
+          export PATH=/opt/python/bin:/bin:/sbin:/usr/bin:/usr/sbin
+          export PYTHONHOME=/opt/python
+          export HOME=/root
+          export HERMES_HOME=/var/lib/hermes
+          export PYTHONUNBUFFERED=1
+          mkdir -p /var/lib/hermes /root/.hermes /run/hermes
+          exec /opt/python/bin/python3 -m hermes_cli.main dashboard --host 0.0.0.0 --port 9119 --no-open
+          SH
+          chmod 0755 overlay/opt/hermes-start
+
+          cp /etc/ssl/certs/ca-certificates.crt overlay/etc/ssl/certs/
+          cp /etc/nsswitch.conf overlay/etc/ || true
+          cp /etc/services overlay/etc/ || true
+          cp /etc/protocols overlay/etc/ || true
+          cp /etc/gai.conf overlay/etc/ || true
+
+          python3 - <<'PY'
+          import pathlib, shutil, subprocess
+          root = pathlib.Path('overlay')
+          copied = set()
+          elfs = []
+          for p in (root / 'opt/python').rglob('*'):
+              try:
+                  if p.is_file() and not p.is_symlink() and p.open('rb').read(4) == b'\x7fELF':
+                      elfs.append(p)
+              except OSError:
+                  pass
+          def copy_abs(s):
+              src = pathlib.Path(s)
+              if not src.exists() or str(src) in copied:
+                  return
+              copied.add(str(src))
+              dst = root / str(src).lstrip('/')
+              dst.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(src, dst, follow_symlinks=True)
+          for elf in elfs:
+              out = subprocess.run(['ldd', str(elf)], text=True, capture_output=True).stdout
+              for line in out.splitlines():
+                  line = line.strip()
+                  token = None
+                  if '=>' in line:
+                      token = line.split('=>', 1)[1].strip().split(' ', 1)[0]
+                  elif line.startswith('/'):
+                      token = line.split(' ', 1)[0]
+                  if token and token.startswith('/'):
+                      copy_abs(token)
+          for p in ['/lib/x86_64-linux-gnu/libnss_dns.so.2',
+                    '/lib/x86_64-linux-gnu/libnss_files.so.2',
+                    '/lib/x86_64-linux-gnu/libresolv.so.2',
+                    '/lib64/ld-linux-x86-64.so.2']:
+              copy_abs(p)
+          print('runtime libraries:', len(copied))
+          PY
+
+          mkdir -p smoke-home
+          set +e
+          HOME="$PWD/smoke-home" HERMES_HOME="$PWD/smoke-home/.hermes" \
+            PYTHONHOME="$PWD/overlay/opt/python" \
+            "$PWD/overlay/opt/python/bin/python3" -m hermes_cli.main dashboard \
+            --host 127.0.0.1 --port 19119 --no-open \
+            > dashboard-smoke.log 2>&1 &
+          pid=$!
+          set -e
+          ok=0
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:19119/ -o dashboard-index.html; then ok=1; break; fi
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          cat dashboard-smoke.log
+          test "$ok" = 1
+          grep -qi '<html\|<!doctype' dashboard-index.html
+          tar --numeric-owner --owner=0 --group=0 -C overlay -czf hermes-microbase-overlay.tar.gz .
+          sha256sum hermes-microbase-overlay.tar.gz > hermes-microbase-overlay.tar.gz.sha256
+          du -sh overlay hermes-microbase-overlay.tar.gz
+
+      - name: Upload QEMU bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-debian13-bundle
+          path: |
+            transfer/debian13-qemu-offline-bundle.tar.gz
+            transfer/debian13-qemu-offline-bundle.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Hermes overlay
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-microbase-overlay
+          path: |
+            hermes-build/hermes-microbase-overlay.tar.gz
+            hermes-build/hermes-microbase-overlay.tar.gz.sha256
+            hermes-build/python-source-url.txt
+            hermes-build/dashboard-smoke.log
+            hermes-build/dashboard-index.html
+          if-no-files-found: error
+          retention-days: 7
