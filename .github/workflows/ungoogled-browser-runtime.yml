@@ -41,7 +41,7 @@ jobs:
           sha256sum "$ASSET_NAME" | tee ../source.sha256
           tar -xJf "$ASSET_NAME" -C ../runtime --strip-components=1
 
-      - name: Verify browser and headless operation
+      - name: Bundle non-glibc runtime dependencies
         shell: bash
         run: |
           set -euxo pipefail
@@ -50,16 +50,58 @@ jobs:
           for candidate in chrome chromium ungoogled-chromium chrome-wrapper; do
             if [ -x "$candidate" ]; then BROWSER="$candidate"; break; fi
           done
-          if [ -z "$BROWSER" ]; then
-            BROWSER="$(find . -maxdepth 3 -type f -perm -111 \( -name chrome -o -name chromium -o -name ungoogled-chromium \) -print -quit)"
-          fi
           test -n "$BROWSER"
           printf '%s\n' "$BROWSER" | tee ../browser-relative-path.txt
+          mkdir -p lib
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, subprocess
+          binary = Path('../browser-relative-path.txt').read_text().strip()
+          out = subprocess.check_output(['ldd', binary], text=True)
+          excluded = {
+              'ld-linux-x86-64.so.2', 'libc.so.6', 'libm.so.6', 'libdl.so.2',
+              'libpthread.so.0', 'librt.so.1', 'libresolv.so.2', 'libnss_dns.so.2',
+              'libnss_files.so.2', 'libgcc_s.so.1',
+          }
+          copied = []
+          for line in out.splitlines():
+              line = line.strip()
+              token = None
+              if '=>' in line:
+                  rhs = line.split('=>', 1)[1].strip()
+                  if rhs.startswith('not found'):
+                      raise SystemExit(f'missing dependency: {line}')
+                  token = rhs.split(' ', 1)[0]
+              elif line.startswith('/'):
+                  token = line.split(' ', 1)[0]
+              if not token or not token.startswith('/'):
+                  continue
+              src = Path(token)
+              if src.name in excluded:
+                  continue
+              dst = Path('lib') / src.name
+              if dst.exists():
+                  continue
+              shutil.copy2(src.resolve(), dst)
+              copied.append(str(src))
+          Path('../diagnostics/copied-libraries.txt').write_text('\n'.join(copied) + '\n')
+          print(f'copied {len(copied)} non-glibc libraries')
+          PY
+          ldd "./$BROWSER" | tee ../diagnostics/ldd.txt
+
+      - name: Verify browser and headless operation with bundled library path
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd browser-work/runtime
+          BROWSER="$(cat ../browser-relative-path.txt)"
+          export LD_LIBRARY_PATH="$PWD/lib"
           "./$BROWSER" --version | tee ../browser-version.txt
           timeout 30 "./$BROWSER" \
             --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
             --no-first-run --no-default-browser-check --disable-background-networking \
             --disable-component-update --disable-sync --disable-extensions \
+            --user-data-dir="$RUNNER_TEMP/ungoogled-smoke-profile" \
             --dump-dom 'data:text/html,<title>Hermes Browser Test</title><h1>ready</h1>' \
             > ../headless-smoke.html
           grep -q 'ready' ../headless-smoke.html
