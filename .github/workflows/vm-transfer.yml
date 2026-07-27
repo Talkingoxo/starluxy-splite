@@ -127,8 +127,8 @@ jobs:
             ACCEL=(-accel tcg,thread=multi -cpu max)
             echo tcg > transfer/manifest/INSTALL_ACCELERATOR
           fi
-          set +e
-          timeout --foreground 10800 qemu-system-x86_64 \
+          rm -f work/install-qmp.sock work/install-qemu.pid
+          qemu-system-x86_64 \
             "${ACCEL[@]}" \
             -machine pc \
             -m 4096M -smp 2 \
@@ -139,21 +139,76 @@ jobs:
             -device virtio-rng-pci \
             -kernel work/boot/images/pxeboot/vmlinuz \
             -initrd work/boot/images/pxeboot/initrd.img \
-            -append "inst.stage2=hd:LABEL=$LABEL inst.repo=https://download.fedoraproject.org/pub/fedora/linux/releases/44/Everything/x86_64/os/ inst.ks=http://10.0.2.2:8000/ks.cfg inst.text console=ttyS0,115200n8 ip=dhcp rd.neednet=1" \
-            -nographic -monitor none -no-reboot \
-            >work/logs/install-console.log 2>work/logs/install-stderr.log
-          STATUS=$?
-          set -e
+            -append "inst.stage2=hd:LABEL=$LABEL inst.repo=https://download.fedoraproject.org/pub/fedora/linux/releases/44/Everything/x86_64/os/ inst.ks=http://10.0.2.2:8000/ks.cfg inst.cmdline console=ttyS0,115200n8 ip=dhcp rd.neednet=1" \
+            -display none -serial file:work/logs/install-console.log -monitor none \
+            -qmp unix:work/install-qmp.sock,server=on,wait=off \
+            -no-reboot -daemonize -pidfile work/install-qemu.pid \
+            2>work/logs/install-stderr.log
+
+          PID=$(cat work/install-qemu.pid)
+          MARKER=0
+          TIMED_OUT=1
+          for i in $(seq 1 10800); do
+            if ! kill -0 "$PID" 2>/dev/null; then
+              TIMED_OUT=0
+              break
+            fi
+            if grep -Eiq 'Installation complete|Installation finished|The system is ready for use' \
+                work/logs/install-console.log 2>/dev/null; then
+              MARKER=1
+              TIMED_OUT=0
+              echo 'Anaconda completion marker detected; flushing before QEMU exit.'
+              sleep 30
+              python3 - <<'QMP'
+          import socket, time
+          p='work/install-qmp.sock'
+          for _ in range(100):
+              try:
+                  s=socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                  s.connect(p)
+                  break
+              except OSError:
+                  time.sleep(0.1)
+          else:
+              raise SystemExit('QMP socket unavailable')
+          f=s.makefile('rwb', buffering=0)
+          f.readline()
+          f.write(b'{"execute":"qmp_capabilities"}\n'); f.readline()
+          f.write(b'{"execute":"quit"}\n')
+          s.close()
+          QMP
+              break
+            fi
+            if [ $((i % 60)) -eq 0 ]; then
+              echo "Installer active for ${i}s"
+              tail -5 work/logs/install-console.log || true
+            fi
+            sleep 1
+          done
+
+          if [ "$TIMED_OUT" -ne 0 ]; then
+            echo 'Installer exceeded three-hour watchdog.'
+            tail -300 work/logs/install-console.log || true
+            cat work/logs/install-stderr.log || true
+            kill "$PID" 2>/dev/null || true
+            exit 124
+          fi
+          for i in $(seq 1 300); do
+            if ! kill -0 "$PID" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if kill -0 "$PID" 2>/dev/null; then
+            echo 'QEMU did not exit after installer completion.'
+            kill "$PID" 2>/dev/null || true
+            exit 1
+          fi
           kill "$HTTP_PID" 2>/dev/null || true
           trap - EXIT
-          printf '%s\n' "$STATUS" > transfer/manifest/INSTALL-QEMU-EXIT-STATUS
+          printf 'completion_marker=%s\n' "$MARKER" \
+            > transfer/manifest/INSTALL-COMPLETION-STATE
           cp work/logs/install-console.log work/logs/install-stderr.log \
             transfer/manifest/ || true
-          if [ "$STATUS" -ne 0 ]; then
-            tail -200 work/logs/install-console.log || true
-            cat work/logs/install-stderr.log || true
-            exit "$STATUS"
-          fi
+          sync
           qemu-img check work/fedora44-minimal.qcow2 \
             | tee transfer/manifest/POST-INSTALL-QEMU-IMG-CHECK.txt
 
