@@ -1,0 +1,104 @@
+name: Hermes native browser drawer
+
+on:
+  push:
+    branches:
+      - agent/hermes-native-browser-drawer-20260728
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CI: '1'
+      DISPLAY: ':99'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out official Hermes Desktop
+        uses: actions/checkout@v4
+        with:
+          repository: NousResearch/hermes-agent
+          ref: 96db67b849e78d9c4c0bc0e1efc6dc95f22bcbcc
+          path: hermes-agent
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: hermes-agent/package-lock.json
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb ffmpeg libgtk-3-0 libgbm1 libnss3 libasound2t64 libxss1 libxtst6 libxkbcommon0
+
+      - name: Install Hermes dependencies
+        working-directory: hermes-agent
+        run: npm ci
+
+      - name: Install plugin and test into official checkout
+        run: |
+          cp native-browser-drawer/plugin.js hermes-agent/apps/desktop/e2e/native-browser-drawer-plugin.mjs
+          cp native-browser-drawer/native-browser-drawer.spec.ts hermes-agent/apps/desktop/e2e/native-browser-drawer.spec.ts
+
+      - name: Build official Hermes Desktop
+        working-directory: hermes-agent
+        run: npm run build --workspace apps/desktop
+
+      - name: Run recorded interaction sequence
+        shell: bash
+        working-directory: hermes-agent/apps/desktop
+        run: |
+          Xvfb :99 -screen 0 1600x1000x24 -ac +extension RANDR > /tmp/xvfb.log 2>&1 &
+          XVFB_PID=$!
+          sleep 2
+          mkdir -p test-results/video
+          ffmpeg -y -f x11grab -video_size 1600x1000 -framerate 20 -i :99 -c:v libx264 -preset ultrafast -pix_fmt yuv420p test-results/video/native-browser-drawer-sequence.mp4 > /tmp/ffmpeg.log 2>&1 &
+          FFMPEG_PID=$!
+          set +e
+          npx playwright test e2e/native-browser-drawer.spec.ts --reporter=list
+          STATUS=$?
+          set -e
+          kill -INT "$FFMPEG_PID" 2>/dev/null || true
+          wait "$FFMPEG_PID" 2>/dev/null || true
+          kill "$XVFB_PID" 2>/dev/null || true
+          exit "$STATUS"
+
+      - name: Package plugin and evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifact/plugin artifact/evidence
+          cp native-browser-drawer/plugin.js artifact/plugin/plugin.js
+          cp -r hermes-agent/apps/desktop/test-results/. artifact/evidence/ 2>/dev/null || true
+          cp -r hermes-agent/apps/desktop/playwright-report artifact/evidence/ 2>/dev/null || true
+          cat > artifact/README.txt <<'EOF'
+          Native browser drawer for official Hermes Desktop.
+
+          Source commit tested:
+          96db67b849e78d9c4c0bc0e1efc6dc95f22bcbcc
+
+          The plugin does not replace Chat or Settings. It contributes a title-bar toggle and dynamically registers a right-side pane docked beside the native workspace. The pane is absent while closed and uses Hermes' native resizable layout splitter while open.
+          EOF
+          tar -czf hermes-native-browser-drawer.tar.gz artifact
+          sha256sum hermes-native-browser-drawer.tar.gz > hermes-native-browser-drawer.tar.gz.sha256
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-native-browser-drawer
+          path: |
+            hermes-native-browser-drawer.tar.gz
+            hermes-native-browser-drawer.tar.gz.sha256
+            hermes-agent/apps/desktop/test-results/
+            hermes-agent/apps/desktop/playwright-report/
+          if-no-files-found: warn
+          retention-days: 7
