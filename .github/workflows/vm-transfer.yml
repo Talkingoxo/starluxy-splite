@@ -141,6 +141,7 @@ jobs:
           split -b 450M -d -a 2 transfer/fedora44-everything-minimal.qcow2 transfer/parts/fedora44-everything-minimal.qcow2.part-
           sha256sum transfer/parts/* > transfer/manifest/PARTS.sha256
           stat -c '%n %s bytes' transfer/parts/* > transfer/manifest/PARTS.stat
+          test "$(find transfer/parts -type f | wc -l)" -eq 5
 
       - name: Upload disk part 00
         uses: actions/upload-artifact@v4
@@ -157,7 +158,7 @@ jobs:
           path: transfer/parts/fedora44-everything-minimal.qcow2.part-01
           retention-days: 1
           compression-level: 0
-          if-no-files-found: ignore
+          if-no-files-found: error
       - name: Upload disk part 02
         uses: actions/upload-artifact@v4
         with:
@@ -165,7 +166,23 @@ jobs:
           path: transfer/parts/fedora44-everything-minimal.qcow2.part-02
           retention-days: 1
           compression-level: 0
-          if-no-files-found: ignore
+          if-no-files-found: error
+      - name: Upload disk part 03
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora44-everything-minimal-disk-part-03
+          path: transfer/parts/fedora44-everything-minimal.qcow2.part-03
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      - name: Upload disk part 04
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora44-everything-minimal-disk-part-04
+          path: transfer/parts/fedora44-everything-minimal.qcow2.part-04
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
       - name: Upload manifest
         if: always()
         uses: actions/upload-artifact@v4
