@@ -19,7 +19,8 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            qemu-system-x86 qemu-utils libarchive-tools openssh-client netcat-openbsd
+            qemu-system-x86 qemu-utils libarchive-tools openssh-client \
+            netcat-openbsd openssl
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm || true; fi
 
       - name: Download and verify official Fedora Server DVD package source
@@ -55,6 +56,9 @@ jobs:
             -f work/credentials/fedora_minimal_ed25519
           chmod 600 work/credentials/fedora_minimal_ed25519
           PUB=$(cat work/credentials/fedora_minimal_ed25519.pub)
+          RANDOM_PASSWORD=$(openssl rand -hex 32)
+          PASSWORD_HASH=$(openssl passwd -6 "$RANDOM_PASSWORD")
+          unset RANDOM_PASSWORD
           cat > work/http/ks.cfg <<EOF
           cmdline
           eula --agreed
@@ -64,7 +68,7 @@ jobs:
           timezone Etc/UTC --utc
           network --bootproto=dhcp --device=link --activate --hostname=fedora-minimal
           rootpw --lock
-          user --name=fedora --groups=wheel --lock
+          user --name=fedora --groups=wheel --password=$PASSWORD_HASH --iscrypted
           sshkey --username=fedora "$PUB"
           firewall --enabled --service=ssh
           selinux --enforcing
@@ -90,10 +94,13 @@ jobs:
           %post
           printf 'fedora ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/fedora
           chmod 0440 /etc/sudoers.d/fedora
+          mkdir -p /etc/ssh/sshd_config.d
+          printf 'PasswordAuthentication no\nPermitRootLogin no\n' > /etc/ssh/sshd_config.d/90-fedora-minimal.conf
           printf 'fedora-minimal-installed\n' > /var/tmp/fedora-minimal-install-marker
           systemctl set-default multi-user.target
           %end
           EOF
+          unset PASSWORD_HASH PUB
           chmod 600 work/http/ks.cfg
           grep -vE '^(sshkey|rootpw|user )' work/http/ks.cfg > transfer/manifest/ks-redacted.cfg
 
@@ -145,6 +152,9 @@ jobs:
           else
             ACCEL=(-accel tcg,thread=multi -cpu max)
           fi
+          SSH=(ssh -i work/credentials/fedora_minimal_ed25519 -p 2222 \
+            -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=10 fedora@127.0.0.1)
           boot_vm() {
             local serial_log=$1
             rm -f work/qemu.pid
@@ -159,15 +169,20 @@ jobs:
               -display none -serial "file:$serial_log" -monitor none \
               -no-reboot -daemonize -pidfile work/qemu.pid
             for i in $(seq 1 300); do
-              if nc -z 127.0.0.1 2222; then return 0; fi
               if [ -f work/qemu.pid ] && ! kill -0 "$(cat work/qemu.pid)" 2>/dev/null; then return 1; fi
+              if "${SSH[@]}" true >/dev/null 2>&1; then return 0; fi
               sleep 2
             done
             return 1
           }
-          SSH=(ssh -i work/credentials/fedora_minimal_ed25519 -p 2222 \
-            -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=10 fedora@127.0.0.1)
+          shutdown_vm() {
+            "${SSH[@]}" 'sudo systemctl poweroff' || true
+            for i in $(seq 1 120); do
+              if ! kill -0 "$(cat work/qemu.pid)" 2>/dev/null; then return 0; fi
+              sleep 1
+            done
+            return 1
+          }
 
           boot_vm work/logs/boot-1-console.log
           "${SSH[@]}" 'set -e
@@ -175,32 +190,32 @@ jobs:
             cat /etc/os-release
             uname -r
             id
+            systemctl get-default
+            rpm -qa "fedora-release*" | sort
+            command -v dnf5
+            rpm -q cloud-init rpm-ostree gnome-shell gdm plasma-desktop sddm xorg-x11-server-Xorg || true
+            systemctl is-active sshd
+            systemctl is-enabled sshd
+            findmnt /
+            df -h /
             test "$(systemctl get-default)" = multi-user.target
             rpm -q fedora-release-identity-basic
             ! rpm -q fedora-release-server
             ! rpm -q fedora-release-identity-server
-            command -v dnf5
             ! command -v rpm-ostree
             ! rpm -q cloud-init
             for p in gnome-shell gdm plasma-desktop sddm xorg-x11-server-Xorg; do ! rpm -q "$p"; done
-            systemctl is-active sshd
-            systemctl is-enabled sshd
             test -f /var/tmp/fedora-minimal-install-marker
             sudo sh -c "printf persistence-test-ok\\n > /var/tmp/fedora-minimal-persistence-marker"
-            findmnt /
-            df -h /
           ' | tee transfer/manifest/FIRST-BOOT-VERIFICATION.txt
-          "${SSH[@]}" 'sudo systemctl poweroff' || true
-          for i in $(seq 1 120); do
-            if ! kill -0 "$(cat work/qemu.pid)" 2>/dev/null; then break; fi
-            sleep 1
-          done
-          ! kill -0 "$(cat work/qemu.pid)" 2>/dev/null
+          shutdown_vm
           qemu-img check work/fedora44-minimal.qcow2 | tee work/logs/post-first-boot-check.txt
 
           boot_vm work/logs/boot-2-console.log
           "${SSH[@]}" 'set -e
             cat /etc/fedora-release
+            systemctl get-default
+            rpm -qa "fedora-release*" | sort
             test "$(systemctl get-default)" = multi-user.target
             rpm -q fedora-release-identity-basic
             ! rpm -q fedora-release-server
@@ -211,12 +226,7 @@ jobs:
             systemctl is-active sshd
             cat /proc/sys/kernel/random/boot_id
           ' | tee transfer/manifest/SECOND-BOOT-VERIFICATION.txt
-          "${SSH[@]}" 'sudo systemctl poweroff' || true
-          for i in $(seq 1 120); do
-            if ! kill -0 "$(cat work/qemu.pid)" 2>/dev/null; then break; fi
-            sleep 1
-          done
-          ! kill -0 "$(cat work/qemu.pid)" 2>/dev/null
+          shutdown_vm
           qemu-img check work/fedora44-minimal.qcow2 | tee transfer/manifest/FINAL-QEMU-IMG-CHECK.txt
 
       - name: Compress split and checksum verified disk
@@ -290,3 +300,15 @@ jobs:
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-minimal-offline-diagnostics
+          path: |
+            work/logs/
+            transfer/manifest/
+          retention-days: 1
+          compression-level: 6
+          if-no-files-found: warn
