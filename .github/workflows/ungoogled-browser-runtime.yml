@@ -26,19 +26,20 @@ jobs:
         run: |
           set -euxo pipefail
           rm -rf browser-work
-          mkdir -p browser-work/download browser-work/runtime
+          mkdir -p browser-work/download browser-work/runtime browser-work/diagnostics
           cd browser-work/download
-          UC_VERSION="$(gh release view --repo ungoogled-software/ungoogled-chromium-portablelinux --json tagName --jq .tagName)"
-          test -n "$UC_VERSION"
-          printf '%s\n' "$UC_VERSION" | tee ../source-version.txt
-          gh release download "$UC_VERSION" \
-            --repo ungoogled-software/ungoogled-chromium-portablelinux \
-            --pattern 'ungoogled-chromium_*_linux.tar.xz'
-          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 1
-          ARCHIVE="$(find . -maxdepth 1 -type f -name '*.tar.xz' -print -quit)"
-          test -n "$ARCHIVE"
-          sha256sum "$ARCHIVE" | tee ../source.sha256
-          tar -xJf "$ARCHIVE" -C ../runtime --strip-components=1
+          gh api repos/ungoogled-software/ungoogled-chromium-portablelinux/releases/latest > ../diagnostics/release.json
+          jq -r '.tag_name' ../diagnostics/release.json | tee ../source-version.txt
+          jq -r '.assets[].name' ../diagnostics/release.json | tee ../diagnostics/assets.txt
+          ASSET_API_URL="$(jq -r '.assets[] | select(.name | endswith(".tar.xz")) | .url' ../diagnostics/release.json | head -n1)"
+          ASSET_NAME="$(jq -r '.assets[] | select(.name | endswith(".tar.xz")) | .name' ../diagnostics/release.json | head -n1)"
+          test -n "$ASSET_API_URL"
+          test -n "$ASSET_NAME"
+          gh api -H 'Accept: application/octet-stream' "$ASSET_API_URL" > "$ASSET_NAME"
+          test -s "$ASSET_NAME"
+          file "$ASSET_NAME" | tee ../diagnostics/archive-file.txt
+          sha256sum "$ASSET_NAME" | tee ../source.sha256
+          tar -xJf "$ASSET_NAME" -C ../runtime --strip-components=1
 
       - name: Verify browser and headless operation
         shell: bash
@@ -83,6 +84,15 @@ jobs:
           tar --numeric-owner --owner=0 --group=0 -czf ungoogled-browser-runtime.tar.gz \
             runtime browser-relative-path.txt browser-version.txt source-version.txt source.sha256 headless-smoke.html runtime-size.txt
           sha256sum ungoogled-browser-runtime.tar.gz > ungoogled-browser-runtime.tar.gz.sha256
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ungoogled-browser-diagnostics
+          path: browser-work/diagnostics/
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Upload runtime
         uses: actions/upload-artifact@v4
