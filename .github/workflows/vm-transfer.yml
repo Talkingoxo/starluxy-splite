@@ -1,4 +1,4 @@
-name: Build official Debian 13 QEMU offline repository
+name: Inspect Fedora 44 Everything software environments
 
 on:
   pull_request:
@@ -9,40 +9,54 @@ permissions:
   contents: read
 
 jobs:
-  transfer:
+  inspect:
     runs-on: ubuntu-24.04
     steps:
-      - name: Download dependency-complete QEMU packages
+      - name: Read official Fedora comps metadata
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p transfer/qemu-debs
-          docker run --rm -v "$PWD/transfer/qemu-debs:/out" \
-            debian:trixie-slim bash -lc '
-              set -euo pipefail
-              apt-get update
-              apt-get install -y --no-install-recommends --download-only \
-                qemu-system-x86 qemu-utils qemu-system-common qemu-system-data \
-                seabios ipxe-qemu dpkg-dev
-              cp -v /var/cache/apt/archives/*.deb /out/
-            '
-          docker run --rm -v "$PWD/transfer/qemu-debs:/repo" \
-            debian:trixie-slim bash -lc '
-              set -euo pipefail
-              apt-get update
-              apt-get install -y --no-install-recommends dpkg-dev gzip
-              cd /repo
-              dpkg-scanpackages . /dev/null > Packages
-              gzip -9c Packages > Packages.gz
-              sha256sum *.deb > SHA256SUMS
-            '
-          du -sh transfer/qemu-debs
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zstd
+          BASE='https://download.fedoraproject.org/pub/fedora/linux/releases/44/Everything/x86_64/os'
+          mkdir -p output
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output output/repomd.xml "$BASE/repodata/repomd.xml"
+          HREF=$(python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root=ET.parse('output/repomd.xml').getroot()
+          ns={'r':'http://linux.duke.edu/metadata/repo'}
+          for kind in ('group','group_gz'):
+              node=root.find(f"r:data[@type='{kind}']/r:location",ns)
+              if node is not None:
+                  print(node.attrib['href'])
+                  break
+          else:
+              raise SystemExit('No comps/group metadata in repomd.xml')
+          PY
+          )
+          echo "$HREF" | tee output/comps-location.txt
+          curl --fail --location --retry 5 --retry-all-errors \
+            --output output/comps.xml.zst "$BASE/$HREF"
+          zstd -dc output/comps.xml.zst > output/comps.xml
+          python3 - <<'PY' | tee output/environments.txt
+          import xml.etree.ElementTree as ET
+          root=ET.parse('output/comps.xml').getroot()
+          for env in root.findall('environment'):
+              env_id=env.findtext('id')
+              name=env.findtext('name')
+              groups=[n.text for n in env.findall('./grouplist/groupid')]
+              options=[n.text for n in env.findall('./optionlist/groupid')]
+              print(f'ID={env_id}\nNAME={name}\nGROUPS={groups}\nOPTIONS={options}\n')
+          PY
+          grep -in -A8 -B2 'minimal' output/environments.txt \
+            | tee output/minimal-matches.txt || true
 
-      - name: Upload Debian 13 QEMU repository
+      - name: Upload Fedora environment metadata
         uses: actions/upload-artifact@v4
         with:
-          name: debian13-qemu-offline-repository
-          path: transfer/qemu-debs/
+          name: fedora44-everything-environments
+          path: output/
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
