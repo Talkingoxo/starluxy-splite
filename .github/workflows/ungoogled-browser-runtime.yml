@@ -31,8 +31,8 @@ jobs:
           gh api repos/ungoogled-software/ungoogled-chromium-portablelinux/releases/latest > ../diagnostics/release.json
           jq -r '.tag_name' ../diagnostics/release.json | tee ../source-version.txt
           jq -r '.assets[].name' ../diagnostics/release.json | tee ../diagnostics/assets.txt
-          ASSET_API_URL="$(jq -r '.assets[] | select(.name | endswith(".tar.xz")) | .url' ../diagnostics/release.json | head -n1)"
-          ASSET_NAME="$(jq -r '.assets[] | select(.name | endswith(".tar.xz")) | .name' ../diagnostics/release.json | head -n1)"
+          ASSET_API_URL="$(jq -r '.assets[] | select(.name | endswith("-x86_64_linux.tar.xz")) | .url' ../diagnostics/release.json | head -n1)"
+          ASSET_NAME="$(jq -r '.assets[] | select(.name | endswith("-x86_64_linux.tar.xz")) | .name' ../diagnostics/release.json | head -n1)"
           test -n "$ASSET_API_URL"
           test -n "$ASSET_NAME"
           gh api -H 'Accept: application/octet-stream' "$ASSET_API_URL" > "$ASSET_NAME"
