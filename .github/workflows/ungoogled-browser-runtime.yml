@@ -19,21 +19,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download official portable Ungoogled Chromium release
+      - name: Download latest official portable Ungoogled Chromium release
         env:
           GH_TOKEN: ${{ github.token }}
-          UC_VERSION: 150.0.7871.186-1
         shell: bash
         run: |
           set -euxo pipefail
           rm -rf browser-work
           mkdir -p browser-work/download browser-work/runtime
           cd browser-work/download
+          UC_VERSION="$(gh release view --repo ungoogled-software/ungoogled-chromium-portablelinux --json tagName --jq .tagName)"
+          test -n "$UC_VERSION"
+          printf '%s\n' "$UC_VERSION" | tee ../source-version.txt
           gh release download "$UC_VERSION" \
             --repo ungoogled-software/ungoogled-chromium-portablelinux \
             --pattern 'ungoogled-chromium_*_linux.tar.xz'
           test "$(find . -maxdepth 1 -type f | wc -l)" -eq 1
           ARCHIVE="$(find . -maxdepth 1 -type f -name '*.tar.xz' -print -quit)"
+          test -n "$ARCHIVE"
           sha256sum "$ARCHIVE" | tee ../source.sha256
           tar -xJf "$ARCHIVE" -C ../runtime --strip-components=1
 
@@ -78,7 +81,7 @@ jobs:
           set -euxo pipefail
           cd browser-work
           tar --numeric-owner --owner=0 --group=0 -czf ungoogled-browser-runtime.tar.gz \
-            runtime browser-relative-path.txt browser-version.txt source.sha256 headless-smoke.html runtime-size.txt
+            runtime browser-relative-path.txt browser-version.txt source-version.txt source.sha256 headless-smoke.html runtime-size.txt
           sha256sum ungoogled-browser-runtime.tar.gz > ungoogled-browser-runtime.tar.gz.sha256
 
       - name: Upload runtime
@@ -89,6 +92,7 @@ jobs:
             browser-work/ungoogled-browser-runtime.tar.gz
             browser-work/ungoogled-browser-runtime.tar.gz.sha256
             browser-work/browser-version.txt
+            browser-work/source-version.txt
             browser-work/source.sha256
             browser-work/headless-smoke.html
             browser-work/runtime-size.txt
