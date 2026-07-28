@@ -1,0 +1,98 @@
+name: MiniMax Native Clean Dependencies V3
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/minimax-native-clean-deps-v3.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential python3 pkg-config curl unzip xvfb libgtk-3-0t64 libnss3 libxss1 libasound2t64 libgbm1 libx11-xcb1 libxkbfile1 libxtst6 libxinerama1 libxrandr2
+
+      - name: Download verified Electron runtime
+        run: |
+          set -euxo pipefail
+          mkdir -p bundle/electron
+          curl -fL --retry 5 -o electron.zip https://github.com/electron/electron/releases/download/v38.3.0/electron-v38.3.0-linux-x64.zip
+          curl -fL --retry 5 -o SHASUMS256.txt https://github.com/electron/electron/releases/download/v38.3.0/SHASUMS256.txt
+          expected=$(awk '$2 ~ /electron-v38\.3\.0-linux-x64\.zip$/ {print $1}' SHASUMS256.txt)
+          test -n "$expected"
+          printf '%s  electron.zip\n' "$expected" | sha256sum -c -
+          unzip -q electron.zip -d bundle/electron
+          bundle/electron/electron --no-sandbox --version
+
+      - name: Build native modules
+        run: |
+          set -euxo pipefail
+          mkdir work
+          cd work
+          npm init -y
+          npm install --ignore-scripts better-sqlite3@12.11.1 node-pty@1.1.0 node-screenshots@0.2.8 node-screenshots-linux-x64-gnu@0.2.8 @vscode/ripgrep@1.18.0 @vscode/ripgrep-linux-x64@1.18.0
+          npm install --save-dev @electron/rebuild@4.0.1
+          npx electron-rebuild -v 38.3.0 -f -w better-sqlite3 -w node-pty
+          test -s node_modules/better-sqlite3/build/Release/better_sqlite3.node
+          test -s node_modules/node-pty/build/Release/pty.node
+          test -s node_modules/node-screenshots-linux-x64-gnu/node-screenshots.linux-x64-gnu.node
+          test -x node_modules/@vscode/ripgrep-linux-x64/bin/rg
+
+      - name: Smoke test in Electron
+        run: |
+          set -euxo pipefail
+          cat > smoke.cjs <<'EOF'
+          const path = require('node:path');
+          const base = path.join(process.cwd(), 'work', 'node_modules');
+          const Database = require(path.join(base, 'better-sqlite3'));
+          const db = new Database(':memory:');
+          db.exec("create table t(v text); insert into t values ('ok')");
+          if (db.prepare('select v from t').get().v !== 'ok') throw new Error('sqlite');
+          db.close();
+          const pty = require(path.join(base, 'node-pty'));
+          const term = pty.spawn('/bin/sh', ['-lc', 'printf pty-ok'], {name:'xterm', cols:80, rows:24, cwd:'/tmp', env:process.env});
+          let output='';
+          term.onData(d => output += d);
+          term.onExit(() => {
+            if (!output.includes('pty-ok')) throw new Error('pty');
+            require(path.join(base, 'node-screenshots'));
+            import(path.join(base, '@vscode/ripgrep/lib/index.js')).then(m => {
+              if (!m.rgPath.includes('ripgrep-linux-x64')) throw new Error('ripgrep');
+              console.log('smoke-ok');
+              process.exit(0);
+            }).catch(e => { console.error(e); process.exit(1); });
+          });
+          setTimeout(() => process.exit(2), 15000).unref();
+          EOF
+          xvfb-run -a bundle/electron/electron --no-sandbox smoke.cjs
+
+      - name: Assemble bundle
+        run: |
+          set -euxo pipefail
+          mkdir -p bundle/replacements/better-sqlite3/build/Release bundle/replacements/node-pty/build/Release bundle/replacements/node-screenshots-linux-x64-gnu bundle/replacements/@vscode/ripgrep-linux-x64
+          cp work/node_modules/better-sqlite3/build/Release/better_sqlite3.node bundle/replacements/better-sqlite3/build/Release/
+          cp work/node_modules/node-pty/build/Release/pty.node bundle/replacements/node-pty/build/Release/
+          cp -a work/node_modules/node-screenshots-linux-x64-gnu/. bundle/replacements/node-screenshots-linux-x64-gnu/
+          cp -a work/node_modules/@vscode/ripgrep-linux-x64/. bundle/replacements/@vscode/ripgrep-linux-x64/
+          printf 'Electron 38.3.0\nbetter-sqlite3 12.11.1\nnode-pty 1.1.0\nnode-screenshots 0.2.8\n@vscode/ripgrep 1.18.0\n' > bundle/VERSIONS.txt
+          find bundle -type f -print0 | sort -z | xargs -0 sha256sum > bundle/SHA256SUMS
+          tar --zstd -cf minimax-native-clean-deps.tar.zst bundle
+          sha256sum minimax-native-clean-deps.tar.zst > minimax-native-clean-deps.tar.zst.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: minimax-native-clean-deps-v3
+          path: |
+            minimax-native-clean-deps.tar.zst
+            minimax-native-clean-deps.tar.zst.sha256
+          if-no-files-found: error
+          retention-days: 1
