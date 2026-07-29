@@ -1,0 +1,48 @@
+name: Fetch ATL runtime
+
+on:
+  push:
+    branches:
+      - atl-runtime-fetch-20260729
+    paths-ignore:
+      - atl-runtime-run-id.txt
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out scratch branch
+        uses: actions/checkout@v4
+
+      - name: Record workflow run ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' '${{ github.run_id }}' > atl-runtime-run-id.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add atl-runtime-run-id.txt
+          git commit -m 'Record ATL runtime workflow run [skip ci]'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Download verified ATL AppImage
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://github.com/pkgforge-dev/android_translation_layer-AppImage/releases/download/r1226.02ab0967-1%402026-07-22_1784722401/Android_Translation_Layer-r1226.02ab0967-1-anylinux-x86_64.AppImage'
+          curl --fail --location --retry 5 --retry-delay 3 --output atl-runtime.AppImage "$url"
+          echo 'b10ae5cfd830b18c927e9a3b3a36aa1290395345b772f4101df47db06b603e6f  atl-runtime.AppImage' | sha256sum --check --strict
+          chmod +x atl-runtime.AppImage
+          file atl-runtime.AppImage
+
+      - name: Upload ATL runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: atl-runtime-r1226-x86_64
+          path: atl-runtime.AppImage
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0
