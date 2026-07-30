@@ -1,1 +1,1 @@
-Fetch checksum-pinned ATL runtime for preserved APK launch testing.
+Fetch standalone smali tools for ATL framework DEX patching.
