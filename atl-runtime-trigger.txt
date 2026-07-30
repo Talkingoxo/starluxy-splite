@@ -1,0 +1,1 @@
+Fetch checksum-pinned ATL runtime for preserved APK launch testing.
