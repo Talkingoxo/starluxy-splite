@@ -1,1 +1,1 @@
-Fetch standalone smali tools for ATL framework DEX patching.
+Fetch APKTool 3.0.2 for ATL framework DEX patching.
