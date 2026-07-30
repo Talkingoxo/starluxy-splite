@@ -17,27 +17,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download standalone smali tools
+      - name: Download standalone APKTool
         shell: bash
         run: |
           set -euo pipefail
           curl --fail --location --retry 5 --retry-delay 3 \
-            --output baksmali-2.5.2.jar \
-            'https://github.com/JesusFreke/smali/releases/download/v2.5.2/baksmali-2.5.2.jar'
-          curl --fail --location --retry 5 --retry-delay 3 \
-            --output smali-2.5.2.jar \
-            'https://github.com/JesusFreke/smali/releases/download/v2.5.2/smali-2.5.2.jar'
-          sha256sum baksmali-2.5.2.jar smali-2.5.2.jar > SHA256SUMS
-          java -jar baksmali-2.5.2.jar --version
-          java -jar smali-2.5.2.jar --version
+            --output apktool_3.0.2.jar \
+            'https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar'
+          sha256sum apktool_3.0.2.jar > SHA256SUMS
+          java -jar apktool_3.0.2.jar --version
 
       - name: Upload patch tools
         uses: actions/upload-artifact@v4
         with:
-          name: atl-smali-tools-2.5.2
+          name: atl-apktool-3.0.2
           path: |
-            baksmali-2.5.2.jar
-            smali-2.5.2.jar
+            apktool_3.0.2.jar
             SHA256SUMS
           if-no-files-found: error
           retention-days: 2
