@@ -1,4 +1,4 @@
-name: Temporary VM artifact transfer
+name: Build verified Fedora 44 neutral minimal base offline
 
 on:
   pull_request:
@@ -9,50 +9,278 @@ permissions:
   contents: read
 
 jobs:
-  transfer:
+  build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
-      - name: Reconstruct exact committed TinyCore ISO
+      - name: Install build tools
         shell: bash
         run: |
-          set -euxo pipefail
-          mkdir -p transfer/qemu-debs
-          BASE='https://testing-ff9x-git-tinycore-vm-bootstrap-alexs-projects-d77c3382.vercel.app/api/bootstrap-file'
-          META=$(curl -fsSL "$BASE?name=iso&meta=1")
-          SIZE=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["size"])' <<<"$META")
-          OUT=transfer/TinyCore-Modern-Pure64.iso
-          : > "$OUT"
-          CHUNK=$((2*1024*1024))
-          OFFSET=0
-          while [ "$OFFSET" -lt "$SIZE" ]; do
-            LENGTH=$CHUNK
-            if [ $((OFFSET + LENGTH)) -gt "$SIZE" ]; then LENGTH=$((SIZE - OFFSET)); fi
-            curl -fsSL "$BASE?name=iso&offset=$OFFSET&length=$LENGTH" | base64 -d >> "$OUT"
-            OFFSET=$((OFFSET + LENGTH))
-          done
-          test "$(stat -c %s "$OUT")" -eq "$SIZE"
-          echo '82db77b13dd13633a82fa600dc224957cd0a750fa948fe121c115fb438045dac  transfer/TinyCore-Modern-Pure64.iso' | sha256sum -c -
-          sha256sum "$OUT" > transfer/TinyCore-Modern-Pure64.iso.sha256
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils libarchive-tools openssh-client \
+            netcat-openbsd openssl
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm || true; fi
 
-      - name: Download complete Debian 13 QEMU package set
+      - name: Download and verify official Fedora DVD
         shell: bash
         run: |
-          set -euxo pipefail
-          docker run --rm -v "$PWD/transfer/qemu-debs:/out" debian:trixie-slim bash -lc '
-            set -eux
-            apt-get update
-            apt-get install -y --no-install-recommends --download-only \
-              qemu-system-x86 qemu-utils qemu-system-common qemu-system-data \
-              seabios ipxe-qemu fdisk
-            cp -v /var/cache/apt/archives/*.deb /out/
-          '
-          (cd transfer/qemu-debs && sha256sum *.deb > SHA256SUMS)
-          du -sh transfer transfer/qemu-debs
+          set -euo pipefail
+          ISO='Fedora-Server-dvd-x86_64-44-1.7.iso'
+          CHECKSUM='Fedora-Server-44-1.7-x86_64-CHECKSUM'
+          BASE='https://download.fedoraproject.org/pub/fedora/linux/releases/44/Server/x86_64/iso'
+          mkdir -p work/{iso,boot,http,credentials,logs} transfer/{manifest,parts}
+          curl -fL --retry 5 --retry-all-errors -o "work/iso/$ISO" "$BASE/$ISO"
+          curl -fL --retry 5 --retry-all-errors -o "work/iso/$CHECKSUM" "$BASE/$CHECKSUM"
+          curl -fL --retry 5 --retry-all-errors -o work/iso/fedora.gpg https://fedoraproject.org/fedora.gpg
+          (
+            cd work/iso
+            gpgv --keyring ./fedora.gpg --output VERIFIED-CHECKSUM "$CHECKSUM"
+            sha256sum -c --ignore-missing VERIFIED-CHECKSUM
+            sha256sum "$ISO" > ../../transfer/manifest/INSTALLER.sha256
+            stat -c '%n %s bytes' "$ISO" > ../../transfer/manifest/INSTALLER.stat
+          )
+          bsdtar -xf "work/iso/$ISO" -C work/boot images/pxeboot/vmlinuz images/pxeboot/initrd.img
+          blkid -p -s LABEL -o value "work/iso/$ISO" > work/iso/LABEL
 
-      - name: Upload VM transfer bundle
+      - name: Create neutral minimal kickstart
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh-keygen -q -t ed25519 -N '' -C fedora-minimal -f work/credentials/fedora_minimal_ed25519
+          chmod 600 work/credentials/fedora_minimal_ed25519
+          PUB=$(cat work/credentials/fedora_minimal_ed25519.pub)
+          RANDOM_PASSWORD=$(openssl rand -hex 32)
+          PASSWORD_HASH=$(openssl passwd -6 "$RANDOM_PASSWORD")
+          unset RANDOM_PASSWORD
+          cat > work/http/ks.cfg <<EOF
+          cmdline
+          eula --agreed
+          cdrom
+          lang en_US.UTF-8
+          keyboard us
+          timezone Etc/UTC --utc
+          network --bootproto=dhcp --device=link --activate --hostname=fedora-minimal
+          rootpw --lock
+          user --name=fedora --groups=wheel --lock
+          sshkey --username=fedora "$PUB"
+          firewall --enabled --service=ssh
+          selinux --enforcing
+          services --enabled=sshd,NetworkManager
+          firstboot --disable
+          skipx
+          zerombr
+          ignoredisk --only-use=vda
+          clearpart --all --initlabel --drives=vda
+          autopart --type=lvm
+          bootloader --location=mbr --append="console=tty0 console=ttyS0,115200n8"
+          shutdown
+
+          %packages --excludedocs --inst-langs=en_US
+          @^minimal-environment
+          fedora-release-identity-basic
+          -fedora-release-server
+          -fedora-release-identity-server
+          openssh-server
+          sudo
+          %end
+
+          %post
+          usermod --password '$PASSWORD_HASH' fedora
+          printf 'fedora ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/fedora
+          chmod 0440 /etc/sudoers.d/fedora
+          mkdir -p /etc/ssh/sshd_config.d
+          printf 'PasswordAuthentication no\nPermitRootLogin no\n' > /etc/ssh/sshd_config.d/90-fedora-minimal.conf
+          printf 'fedora-minimal-installed\n' > /var/tmp/fedora-minimal-install-marker
+          systemctl set-default multi-user.target
+          %end
+          EOF
+          unset PASSWORD_HASH PUB
+          chmod 600 work/http/ks.cfg
+          grep -vE '^(sshkey|rootpw|user |  usermod)' work/http/ks.cfg > transfer/manifest/ks-redacted.cfg
+
+      - name: Install neutral Fedora minimal base offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          qemu-img create -f qcow2 work/fedora44-minimal.qcow2 20G
+          python3 -m http.server 8000 --bind 0.0.0.0 --directory work/http >work/logs/http.log 2>&1 &
+          HTTP_PID=$!
+          trap 'kill $HTTP_PID 2>/dev/null || true' EXIT
+          LABEL=$(cat work/iso/LABEL)
+          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+            ACCEL=(-accel kvm -cpu host)
+            echo kvm > transfer/manifest/INSTALL_ACCELERATOR
+          else
+            ACCEL=(-accel tcg,thread=multi -cpu max)
+            echo tcg > transfer/manifest/INSTALL_ACCELERATOR
+          fi
+          set +e
+          timeout --foreground 5400 qemu-system-x86_64 \
+            "${ACCEL[@]}" -machine pc -m 4096M -smp 2 \
+            -drive file=work/fedora44-minimal.qcow2,if=virtio,format=qcow2,cache=writeback \
+            -drive file=work/iso/Fedora-Server-dvd-x86_64-44-1.7.iso,media=cdrom,readonly=on \
+            -netdev user,id=net0 -device virtio-net-pci,netdev=net0 -device virtio-rng-pci \
+            -kernel work/boot/images/pxeboot/vmlinuz -initrd work/boot/images/pxeboot/initrd.img \
+            -append "inst.stage2=hd:LABEL=$LABEL inst.repo=hd:LABEL=$LABEL inst.ks=http://10.0.2.2:8000/ks.cfg inst.cmdline console=ttyS0,115200n8 ip=dhcp rd.neednet=1" \
+            -nographic -monitor none -no-reboot \
+            >work/logs/install-console.log 2>work/logs/install-stderr.log
+          STATUS=$?
+          set -e
+          kill "$HTTP_PID" 2>/dev/null || true
+          trap - EXIT
+          test "$STATUS" -eq 0
+          qemu-img check work/fedora44-minimal.qcow2 | tee work/logs/post-install-check.txt
+
+      - name: Boot and verify twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+            ACCEL=(-accel kvm -cpu host)
+          else
+            ACCEL=(-accel tcg,thread=multi -cpu max)
+          fi
+          SSH=(ssh -i work/credentials/fedora_minimal_ed25519 -p 2222 \
+            -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=10 fedora@127.0.0.1)
+          boot_vm() {
+            local log=$1
+            rm -f work/qemu.pid
+            qemu-system-x86_64 "${ACCEL[@]}" -machine pc -m 2048M -smp 2 \
+              -drive file=work/fedora44-minimal.qcow2,if=virtio,format=qcow2,cache=writeback \
+              -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22 \
+              -device virtio-net-pci,netdev=net0 -device virtio-rng-pci \
+              -display none -serial "file:$log" -monitor none -no-reboot \
+              -daemonize -pidfile work/qemu.pid
+            for i in $(seq 1 300); do
+              if [ -f work/qemu.pid ] && ! kill -0 "$(cat work/qemu.pid)" 2>/dev/null; then return 1; fi
+              if "${SSH[@]}" true >/dev/null 2>&1; then return 0; fi
+              sleep 2
+            done
+            return 1
+          }
+          shutdown_vm() {
+            "${SSH[@]}" 'sudo systemctl poweroff' || true
+            for i in $(seq 1 120); do
+              if ! kill -0 "$(cat work/qemu.pid)" 2>/dev/null; then return 0; fi
+              sleep 1
+            done
+            return 1
+          }
+          verify_common='set -e
+            cat /etc/fedora-release
+            cat /etc/os-release
+            uname -r
+            id
+            systemctl get-default
+            rpm -qa "fedora-release*" | sort
+            command -v dnf5
+            rpm -q cloud-init rpm-ostree gnome-shell gdm plasma-desktop sddm xorg-x11-server-Xorg || true
+            systemctl is-active sshd
+            systemctl is-enabled sshd
+            test "$(systemctl get-default)" = multi-user.target
+            rpm -q fedora-release-identity-basic
+            ! rpm -q fedora-release-server
+            ! rpm -q fedora-release-identity-server
+            ! command -v rpm-ostree
+            ! rpm -q cloud-init
+            for p in gnome-shell gdm plasma-desktop sddm xorg-x11-server-Xorg; do ! rpm -q "$p"; done
+            test -f /var/tmp/fedora-minimal-install-marker'
+
+          boot_vm work/logs/boot-1-console.log
+          "${SSH[@]}" "$verify_common
+            sudo sh -c 'printf persistence-test-ok\\n > /var/tmp/fedora-minimal-persistence-marker'
+            findmnt /
+            df -h /" | tee transfer/manifest/FIRST-BOOT-VERIFICATION.txt
+          shutdown_vm
+          qemu-img check work/fedora44-minimal.qcow2 | tee work/logs/post-first-boot-check.txt
+
+          boot_vm work/logs/boot-2-console.log
+          "${SSH[@]}" "$verify_common
+            test \"\$(cat /var/tmp/fedora-minimal-persistence-marker)\" = persistence-test-ok
+            cat /proc/sys/kernel/random/boot_id" | tee transfer/manifest/SECOND-BOOT-VERIFICATION.txt
+          shutdown_vm
+          qemu-img check work/fedora44-minimal.qcow2 | tee transfer/manifest/FINAL-QEMU-IMG-CHECK.txt
+
+      - name: Compress split and checksum disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          qemu-img convert -p -O qcow2 -c work/fedora44-minimal.qcow2 transfer/fedora44-minimal-base.qcow2
+          qemu-img check transfer/fedora44-minimal-base.qcow2 | tee transfer/manifest/TRANSFER-DISK-CHECK.txt
+          qemu-img info --output=json transfer/fedora44-minimal-base.qcow2 > transfer/manifest/TRANSFER-DISK-INFO.json
+          sha256sum transfer/fedora44-minimal-base.qcow2 > transfer/manifest/DISK.sha256
+          split --bytes=450M --numeric-suffixes=0 --suffix-length=2 \
+            transfer/fedora44-minimal-base.qcow2 transfer/parts/fedora44-minimal-base.qcow2.part-
+          sha256sum transfer/parts/* > transfer/manifest/PARTS.sha256
+          stat -c '%n %s bytes' transfer/parts/* > transfer/manifest/PARTS.stat
+          cp work/logs/*.txt work/logs/*.log transfer/manifest/ 2>/dev/null || true
+          rm transfer/fedora44-minimal-base.qcow2
+
+      - name: Upload disk part 00
         uses: actions/upload-artifact@v4
         with:
-          name: tinycore-qemu-offline-bundle
-          path: transfer/
+          name: fedora-minimal-offline-disk-part-00
+          path: transfer/parts/fedora44-minimal-base.qcow2.part-00
           retention-days: 1
           compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload disk part 01
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-minimal-offline-disk-part-01
+          path: transfer/parts/fedora44-minimal-base.qcow2.part-01
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: ignore
+
+      - name: Upload disk part 02
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-minimal-offline-disk-part-02
+          path: transfer/parts/fedora44-minimal-base.qcow2.part-02
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: ignore
+
+      - name: Upload disk part 03
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-minimal-offline-disk-part-03
+          path: transfer/parts/fedora44-minimal-base.qcow2.part-03
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: ignore
+
+      - name: Upload verification manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-minimal-offline-manifest
+          path: transfer/manifest/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload temporary access key
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-minimal-offline-temporary-access-key
+          path: work/credentials/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-minimal-offline-diagnostics
+          path: |
+            work/logs/
+            transfer/manifest/
+          retention-days: 1
+          compression-level: 6
+          if-no-files-found: warn
