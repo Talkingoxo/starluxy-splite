@@ -1,4 +1,4 @@
-name: Temporary VM artifact transfer
+name: Build Fedora Everything 44 Core Minimal Disk
 
 on:
   pull_request:
@@ -9,50 +9,194 @@ permissions:
   contents: read
 
 jobs:
-  transfer:
+  build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 180
     steps:
-      - name: Reconstruct exact committed TinyCore ISO
+      - name: Prepare builder
         shell: bash
         run: |
-          set -euxo pipefail
-          mkdir -p transfer/qemu-debs
-          BASE='https://testing-ff9x-git-tinycore-vm-bootstrap-alexs-projects-d77c3382.vercel.app/api/bootstrap-file'
-          META=$(curl -fsSL "$BASE?name=iso&meta=1")
-          SIZE=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["size"])' <<<"$META")
-          OUT=transfer/TinyCore-Modern-Pure64.iso
-          : > "$OUT"
-          CHUNK=$((2*1024*1024))
-          OFFSET=0
-          while [ "$OFFSET" -lt "$SIZE" ]; do
-            LENGTH=$CHUNK
-            if [ $((OFFSET + LENGTH)) -gt "$SIZE" ]; then LENGTH=$((SIZE - OFFSET)); fi
-            curl -fsSL "$BASE?name=iso&offset=$OFFSET&length=$LENGTH" | base64 -d >> "$OUT"
-            OFFSET=$((OFFSET + LENGTH))
-          done
-          test "$(stat -c %s "$OUT")" -eq "$SIZE"
-          echo '82db77b13dd13633a82fa600dc224957cd0a750fa948fe121c115fb438045dac  transfer/TinyCore-Modern-Pure64.iso' | sha256sum -c -
-          sha256sum "$OUT" > transfer/TinyCore-Modern-Pure64.iso.sha256
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils libarchive-tools openssh-client
+          sudo chmod 666 /dev/kvm 2>/dev/null || true
+          mkdir -p work/{iso,boot,http,keys,logs} transfer/{manifest,parts}
 
-      - name: Download complete Debian 13 QEMU package set
+      - name: Verify Fedora Everything 44 Network Install ISO
         shell: bash
         run: |
-          set -euxo pipefail
-          docker run --rm -v "$PWD/transfer/qemu-debs:/out" debian:trixie-slim bash -lc '
-            set -eux
-            apt-get update
-            apt-get install -y --no-install-recommends --download-only \
-              qemu-system-x86 qemu-utils qemu-system-common qemu-system-data \
-              seabios ipxe-qemu fdisk
-            cp -v /var/cache/apt/archives/*.deb /out/
-          '
-          (cd transfer/qemu-debs && sha256sum *.deb > SHA256SUMS)
-          du -sh transfer transfer/qemu-debs
+          set -euo pipefail
+          ISO=Fedora-Everything-netinst-x86_64-44-1.7.iso
+          SUM=Fedora-Everything-44-1.7-x86_64-CHECKSUM
+          BASE=https://download.fedoraproject.org/pub/fedora/linux/releases/44/Everything/x86_64/iso
+          curl -fL --retry 5 --retry-all-errors -o work/iso/$ISO $BASE/$ISO
+          curl -fL --retry 5 --retry-all-errors -o work/iso/$SUM $BASE/$SUM
+          curl -fL --retry 5 --retry-all-errors -o work/iso/fedora.gpg https://fedoraproject.org/fedora.gpg
+          (cd work/iso && gpgv --keyring ./fedora.gpg --output VERIFIED-CHECKSUM $SUM && sha256sum -c --ignore-missing VERIFIED-CHECKSUM && sha256sum $ISO) | tee transfer/manifest/INSTALLER-VERIFICATION.txt
+          bsdtar -xf work/iso/$ISO -C work/boot images/pxeboot/vmlinuz images/pxeboot/initrd.img
+          blkid -p -s LABEL -o value work/iso/$ISO > work/iso/LABEL
 
-      - name: Upload VM transfer bundle
+      - name: Define Fedora core Minimal Install
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh-keygen -q -t ed25519 -N '' -C fedora-minimal -f work/keys/fedora_minimal_ed25519
+          chmod 600 work/keys/fedora_minimal_ed25519
+          PUB=$(cat work/keys/fedora_minimal_ed25519.pub)
+          cat > work/http/ks.cfg <<EOF
+          text
+          eula --agreed
+          url --url=https://download.fedoraproject.org/pub/fedora/linux/releases/44/Everything/x86_64/os/
+          lang en_US.UTF-8
+          keyboard us
+          timezone Etc/UTC --utc
+          network --bootproto=dhcp --device=link --activate --hostname=fedora-minimal
+          rootpw --lock
+          user --name=fedora --groups=wheel --lock
+          sshkey --username=fedora "$PUB"
+          firewall --enabled --service=ssh
+          selinux --enforcing
+          services --enabled=sshd,NetworkManager
+          firstboot --disable
+          skipx
+          zerombr
+          ignoredisk --only-use=vda
+          clearpart --all --initlabel --drives=vda
+          autopart --type=lvm
+          bootloader --location=mbr --append="console=tty0 console=ttyS0,115200n8"
+          shutdown
+
+          %packages --excludedocs --inst-langs=en_US
+          @core
+          fedora-release-identity-basic
+          rpm
+          dnf5
+          selinux-policy-targeted
+          policycoreutils
+          NetworkManager
+          openssh-server
+          sudo
+          -fedora-release-server
+          -fedora-release-identity-server
+          -fedora-release-cloud
+          -fedora-release-identity-cloud
+          -cloud-init
+          -rpm-ostree
+          -ostree
+          -gnome-shell
+          -gdm
+          -plasma-desktop
+          -sddm
+          -xorg-x11-server-Xorg
+          %end
+
+          %post
+          printf 'fedora ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/fedora
+          chmod 0440 /etc/sudoers.d/fedora
+          printf 'fedora-everything-core-installed\n' > /var/tmp/fedora-minimal-install-marker
+          systemctl set-default multi-user.target
+          %end
+          EOF
+          sed -E '/^(sshkey|rootpw|user )/d' work/http/ks.cfg > transfer/manifest/ks-redacted.cfg
+
+      - name: Install Fedora with Anaconda
+        shell: bash
+        run: |
+          set -euo pipefail
+          qemu-img create -f qcow2 work/fedora44-minimal.qcow2 20G
+          python3 -m http.server 8000 --bind 0.0.0.0 --directory work/http >work/logs/http.log 2>&1 &
+          HTTP_PID=$!
+          trap 'kill $HTTP_PID 2>/dev/null || true' EXIT
+          LABEL=$(cat work/iso/LABEL)
+          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL='-accel kvm -cpu host'; else ACCEL='-accel tcg,thread=multi -cpu max'; fi
+          set +e
+          timeout --foreground 10800 qemu-system-x86_64 $ACCEL -machine pc -m 4096M -smp 2 \
+            -drive file=work/fedora44-minimal.qcow2,if=virtio,format=qcow2,cache=writeback \
+            -drive file=work/iso/Fedora-Everything-netinst-x86_64-44-1.7.iso,media=cdrom,readonly=on \
+            -netdev user,id=n0 -device virtio-net-pci,netdev=n0 -device virtio-rng-pci \
+            -kernel work/boot/images/pxeboot/vmlinuz -initrd work/boot/images/pxeboot/initrd.img \
+            -append "inst.stage2=hd:LABEL=$LABEL inst.repo=https://download.fedoraproject.org/pub/fedora/linux/releases/44/Everything/x86_64/os/ inst.ks=http://10.0.2.2:8000/ks.cfg inst.cmdline console=ttyS0,115200n8 ip=dhcp rd.neednet=1" \
+            -nographic -monitor none -no-reboot >work/logs/install-console.log 2>work/logs/install-stderr.log
+          STATUS=$?
+          set -e
+          kill $HTTP_PID 2>/dev/null || true
+          trap - EXIT
+          cp work/logs/install-* transfer/manifest/ || true
+          test $STATUS -eq 0
+          grep -q 'Complete!' work/logs/install-console.log
+          if grep -Eiq 'installation was stopped due to an error|installer will now terminate|No match for argument|mandatory spokes are not completed|software selection.*incomplete' work/logs/install-console.log; then
+            tail -300 work/logs/install-console.log
+            exit 1
+          fi
+          qemu-img check work/fedora44-minimal.qcow2 | tee transfer/manifest/POST-INSTALL-DISK-CHECK.txt
+
+      - name: Export installed disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          qemu-img convert -O qcow2 -c work/fedora44-minimal.qcow2 transfer/fedora44-everything-minimal.qcow2
+          qemu-img check transfer/fedora44-everything-minimal.qcow2 | tee transfer/manifest/TRANSFER-DISK-CHECK.txt
+          qemu-img info --output=json transfer/fedora44-everything-minimal.qcow2 > transfer/manifest/DISK-INFO.json
+          sha256sum transfer/fedora44-everything-minimal.qcow2 > transfer/manifest/DISK.sha256
+          split -b 450M -d -a 2 transfer/fedora44-everything-minimal.qcow2 transfer/parts/fedora44-everything-minimal.qcow2.part-
+          sha256sum transfer/parts/* > transfer/manifest/PARTS.sha256
+          stat -c '%n %s bytes' transfer/parts/* > transfer/manifest/PARTS.stat
+          test "$(find transfer/parts -type f | wc -l)" -eq 5
+
+      - name: Upload disk part 00
         uses: actions/upload-artifact@v4
         with:
-          name: tinycore-qemu-offline-bundle
-          path: transfer/
+          name: fedora44-everything-minimal-disk-part-00
+          path: transfer/parts/fedora44-everything-minimal.qcow2.part-00
           retention-days: 1
           compression-level: 0
+          if-no-files-found: error
+      - name: Upload disk part 01
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora44-everything-minimal-disk-part-01
+          path: transfer/parts/fedora44-everything-minimal.qcow2.part-01
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      - name: Upload disk part 02
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora44-everything-minimal-disk-part-02
+          path: transfer/parts/fedora44-everything-minimal.qcow2.part-02
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      - name: Upload disk part 03
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora44-everything-minimal-disk-part-03
+          path: transfer/parts/fedora44-everything-minimal.qcow2.part-03
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      - name: Upload disk part 04
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora44-everything-minimal-disk-part-04
+          path: transfer/parts/fedora44-everything-minimal.qcow2.part-04
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+      - name: Upload manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora44-everything-minimal-manifest
+          path: transfer/manifest/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: warn
+      - name: Upload access key
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora44-everything-minimal-access-key
+          path: work/keys/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
