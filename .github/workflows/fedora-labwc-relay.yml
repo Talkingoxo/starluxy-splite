@@ -1,0 +1,94 @@
+name: Temporary Fedora 44 LABWC Relay
+
+on:
+  push:
+    branches: [fedora-labwc-relay-20260804]
+    paths:
+      - '.github/workflows/fedora-labwc-relay.yml'
+      - 'fedora-labwc-relay/installed-package-names.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container:
+      image: fedora:44
+
+    steps:
+      - name: Check out relay branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fedora-labwc-relay-20260804
+
+      - name: Install tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          dnf5 install -y --setopt=install_weak_deps=False \
+            dnf5-plugins rpm tar xz coreutils findutils git
+
+      - name: Resolve LABWC for the existing guest
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASELINE=fedora-labwc-relay/installed-package-names.txt
+          WORK="$GITHUB_WORKSPACE/fedora-labwc-relay/work"
+          OUT="$GITHUB_WORKSPACE/fedora-labwc-relay/output"
+          rm -rf "$WORK" "$OUT"
+          mkdir -p "$WORK/rpms" "$WORK/manifest" "$OUT/parts"
+
+          dnf5 --setopt=install_weak_deps=False download \
+            --resolve \
+            --alldeps \
+            --arch=x86_64 \
+            --arch=noarch \
+            --destdir="$WORK/rpms" \
+            labwc labwc-session
+
+          for package in "$WORK"/rpms/*.rpm; do
+            name=$(rpm -qp --qf '%{NAME}' "$package")
+            case "$name" in
+              labwc|labwc-session) continue ;;
+            esac
+            if grep -Fqx "$name" "$BASELINE"; then
+              rm -f "$package"
+            fi
+          done
+
+          test -f "$WORK"/rpms/labwc-*.rpm
+          test -f "$WORK"/rpms/labwc-session-*.rpm
+
+          rpm -qp --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}\t%{ARCH}\n' \
+            "$WORK"/rpms/*.rpm | sort -u > "$WORK/manifest/PACKAGES.tsv"
+          sha256sum "$WORK"/rpms/*.rpm > "$WORK/manifest/RPMS.sha256"
+          printf 'Fedora 44 LABWC offline delta bundle\n' > "$WORK/manifest/README.txt"
+          printf 'Target: the verified Fedora Everything 44 core guest\n' >> "$WORK/manifest/README.txt"
+          printf 'Weak dependencies: disabled\n' >> "$WORK/manifest/README.txt"
+          printf 'Existing guest package names were removed from the transfer set.\n' >> "$WORK/manifest/README.txt"
+          printf 'RPM count: %s\n' "$(find "$WORK/rpms" -maxdepth 1 -type f -name '*.rpm' | wc -l)" >> "$WORK/manifest/README.txt"
+
+          tar -C "$WORK" -cJf "$OUT/fedora44-labwc-delta.tar.xz" rpms manifest
+          sha256sum "$OUT/fedora44-labwc-delta.tar.xz" > "$OUT/BUNDLE.sha256"
+          split -b 24M -d -a 2 \
+            "$OUT/fedora44-labwc-delta.tar.xz" \
+            "$OUT/parts/fedora44-labwc-delta.tar.xz.part-"
+          sha256sum "$OUT"/parts/* > "$OUT/PARTS.sha256"
+          stat -c '%n %s bytes' "$OUT"/parts/* > "$OUT/PARTS.stat"
+          rm -f "$OUT/fedora44-labwc-delta.tar.xz"
+          cat "$WORK/manifest/README.txt"
+          cat "$OUT/PARTS.stat"
+
+      - name: Commit split relay files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add fedora-labwc-relay/output
+          git commit -m 'Publish temporary Fedora LABWC relay parts [skip ci]'
+          git push origin HEAD:fedora-labwc-relay-20260804
