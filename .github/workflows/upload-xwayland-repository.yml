@@ -1,0 +1,82 @@
+name: Upload Fedora 44 Xwayland Repository
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/upload-xwayland-repository.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    container:
+      image: fedora:44
+
+    steps:
+      - name: Install repository tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          dnf5 install -y --setopt=install_weak_deps=False \
+            dnf5-plugins rpm tar xz coreutils findutils createrepo_c curl
+
+      - name: Build and verify Xwayland local repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output/repo/rpms output/manifest
+          dnf5 --setopt=install_weak_deps=False download \
+            --resolve \
+            --alldeps \
+            --arch=x86_64 \
+            --arch=noarch \
+            --destdir=output/repo/rpms \
+            xorg-x11-server-Xwayland
+          find output/repo/rpms -maxdepth 1 -type f -name 'xorg-x11-server-Xwayland-*.rpm' | grep -q .
+          createrepo_c output/repo
+          rpm -qp --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}\t%{ARCH}\n' \
+            output/repo/rpms/*.rpm | sort -u > output/manifest/PACKAGES.tsv
+          sha256sum output/repo/rpms/*.rpm > output/manifest/RPMS.sha256
+          printf 'Fedora 44 Xwayland compatibility repository for LABWC\n' > output/manifest/README.txt
+          printf 'Requested package: xorg-x11-server-Xwayland\n' >> output/manifest/README.txt
+          printf 'Native xorg-x11-server-Xorg is not requested.\n' >> output/manifest/README.txt
+          printf 'RPM count: %s\n' "$(find output/repo/rpms -maxdepth 1 -type f -name '*.rpm' | wc -l)" >> output/manifest/README.txt
+          tar -C output -cJf fedora44-xwayland-offline-repository.tar.xz repo manifest
+          sha256sum fedora44-xwayland-offline-repository.tar.xz > fedora44-xwayland-offline-repository.tar.xz.sha256
+          sha256sum -c fedora44-xwayland-offline-repository.tar.xz.sha256
+          ls -lh fedora44-xwayland-offline-repository.tar.xz
+
+      - name: Delete consumed temporary artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for id in 8877530620 8877535427 8877535711 8877729519 8878447290; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              -X DELETE \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$id")
+            case "$code" in
+              204|404) printf 'artifact %s cleanup HTTP %s\n' "$id" "$code" ;;
+              *) printf 'artifact %s cleanup failed HTTP %s\n' "$id" "$code" >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Upload Xwayland repository
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora44-xwayland-offline-repository
+          path: |
+            fedora44-xwayland-offline-repository.tar.xz
+            fedora44-xwayland-offline-repository.tar.xz.sha256
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
