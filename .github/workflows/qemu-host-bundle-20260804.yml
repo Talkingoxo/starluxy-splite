@@ -1,0 +1,41 @@
+name: Build Debian 13 QEMU Offline Bundle 20260804
+
+on:
+  push:
+    branches: [qemu-host-rebuild-20260804]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download dependency-complete Debian 13 QEMU package set
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p transfer/qemu-debs
+          docker run --rm -v "$PWD/transfer/qemu-debs:/out" debian:trixie-slim bash -lc '
+            set -euo pipefail
+            apt-get update
+            apt-get install -y --no-install-recommends --download-only \
+              qemu-system-x86 qemu-utils qemu-system-common qemu-system-data \
+              seabios ipxe-qemu
+            cp -v /var/cache/apt/archives/*.deb /out/
+          '
+          cd transfer/qemu-debs
+          sha256sum *.deb > SHA256SUMS
+          dpkg-deb -f ./*.deb Package Version Architecture > PACKAGE-FIELDS.txt
+          test "$(find . -maxdepth 1 -name '*.deb' | wc -l)" -gt 20
+          du -sh .
+
+      - name: Upload Debian 13 QEMU offline bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian13-qemu-offline-bundle-20260804
+          path: transfer/qemu-debs/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
