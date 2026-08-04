@@ -1,0 +1,61 @@
+name: Upload LABWC Bundle After Temporary Cleanup
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/upload-labwc-after-cleanup.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fedora-labwc-relay-20260804
+
+      - name: Reconstruct and verify LABWC bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=fedora-labwc-relay/output
+          sed -E 's#  /work/fedora-labwc-relay/output/parts/#  parts/#' "$OUT/PARTS.sha256" > "$OUT/PARTS.local.sha256"
+          (cd "$OUT" && sha256sum -c PARTS.local.sha256)
+          cat "$OUT"/parts/fedora44-labwc-repository.tar.xz.part-* > "$OUT/fedora44-labwc-repository.tar.xz"
+          sed -E 's#  /work/fedora-labwc-relay/output/#  #' "$OUT/BUNDLE.sha256" > "$OUT/BUNDLE.local.sha256"
+          (cd "$OUT" && sha256sum -c BUNDLE.local.sha256)
+
+      - name: Delete consumed one-day Fedora disk-part artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for id in 8877529314 8877530842 8877532409 8877534257 8877535077; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              -X DELETE \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$id")
+            case "$code" in
+              204|404) printf 'artifact %s cleanup HTTP %s\n' "$id" "$code" ;;
+              *) printf 'artifact %s cleanup failed HTTP %s\n' "$id" "$code" >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Upload Fedora 44 LABWC repository
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora44-labwc-offline-repository
+          path: |
+            fedora-labwc-relay/output/fedora44-labwc-repository.tar.xz
+            fedora-labwc-relay/output/BUNDLE.sha256
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
