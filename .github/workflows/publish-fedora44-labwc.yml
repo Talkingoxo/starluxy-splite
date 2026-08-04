@@ -85,7 +85,7 @@ jobs:
           test -s out/fedora44-xwayland-offline-repository.tar.xz
           cat out/SHA256SUMS
 
-      - name: Publish fixed release files
+      - name: Publish fixed release files once
         if: github.event_name != 'pull_request'
         shell: bash
         env:
@@ -94,16 +94,18 @@ jobs:
           set -euo pipefail
           TAG=fedora44-labwc-offline-v1
 
-          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "Fedora 44 LABWC offline repositories" \
-              --notes "Verified Fedora 44 LABWC, LABWC session and Xwayland offline repositories."
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists. Refusing to replace its files."
+            exit 0
           fi
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Fedora 44 LABWC offline repositories" \
+            --notes "Verified Fedora 44 LABWC, LABWC session and Xwayland offline repositories."
 
           gh release upload "$TAG" \
             out/fedora44-labwc-repository.tar.xz \
             out/fedora44-xwayland-offline-repository.tar.xz \
             out/SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
+            --repo "$GITHUB_REPOSITORY"
