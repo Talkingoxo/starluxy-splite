@@ -86,7 +86,7 @@ jobs:
           cat out/SHA256SUMS
 
       - name: Publish fixed release files
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || github.head_ref == 'publish-fedora44-labwc-release-now'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
