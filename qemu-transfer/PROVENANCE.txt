@@ -1,0 +1,2 @@
+Source: hermeticbuild/qemu-prebuilt release 11.0.0.1
+Fetched and SHA-256 verified by GitHub Actions.
