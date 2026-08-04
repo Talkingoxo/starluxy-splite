@@ -1,8 +1,8 @@
 name: Temporary Fedora 44 LABWC Relay
 
 on:
-  push:
-    branches: [fedora-labwc-relay-20260804]
+  pull_request:
+    branches: [main]
     paths:
       - '.github/workflows/fedora-labwc-relay.yml'
       - 'fedora-labwc-relay/installed-package-names.txt'
