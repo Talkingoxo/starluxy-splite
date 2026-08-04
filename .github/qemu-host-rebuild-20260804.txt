@@ -1,0 +1,1 @@
+Trigger the existing dependency-complete Debian 13 QEMU offline bundle workflow for local Fedora VM verification.
