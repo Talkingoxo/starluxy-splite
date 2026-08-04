@@ -18,35 +18,46 @@ jobs:
           ref: qemu-transfer-20260804
           fetch-depth: 1
 
-      - name: Fetch and verify QEMU archives
+      - name: Fetch, verify, and chunk QEMU archives
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p qemu-transfer
+          rm -rf qemu-transfer/chunks
+          mkdir -p qemu-transfer/chunks
           base='https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1'
           files=(
             'qemu-system-bin-linux-amd64-x86_64-softmmu-11.0.0.1.tar.gz'
             'qemu-system-data-linux-amd64-11.0.0.1.tar.gz'
             'qemu-img-linux-amd64-11.0.0.1.tar.gz'
           )
+          : > qemu-transfer/MANIFEST.txt
           for file in "${files[@]}"; do
             curl --fail --location --retry 5 --retry-all-errors \
               "$base/$file" -o "qemu-transfer/$file"
             curl --fail --location --retry 5 --retry-all-errors \
               "$base/$file.sha256" -o "qemu-transfer/$file.sha256"
             (cd qemu-transfer && sha256sum --check "$file.sha256")
+            bytes=$(stat -c '%s' "qemu-transfer/$file")
+            sha=$(sha256sum "qemu-transfer/$file" | awk '{print $1}')
+            printf 'ARCHIVE %s %s %s\n' "$file" "$bytes" "$sha" >> qemu-transfer/MANIFEST.txt
+            base64 -w 0 "qemu-transfer/$file" | \
+              split -b 400000 -d -a 4 - "qemu-transfer/chunks/$file.b64.part-"
           done
+          find qemu-transfer/chunks -type f -printf 'CHUNK %f %s\n' | sort >> qemu-transfer/MANIFEST.txt
           printf '%s\n' \
             'Source: hermeticbuild/qemu-prebuilt release 11.0.0.1' \
             'Fetched and SHA-256 verified by GitHub Actions.' \
+            'Archives encoded as contiguous base64 chunks of at most 400000 bytes.' \
             > qemu-transfer/PROVENANCE.txt
+          rm -f qemu-transfer/*.tar.gz
 
-      - name: Commit verified transfer files
+      - name: Commit verified transfer chunks
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add qemu-transfer
-          git commit -m 'Temporary verified QEMU transfer files [skip ci]'
+          git add -A qemu-transfer
+          git commit -m 'Stage verified QEMU transfer chunks [skip ci]'
           git push origin HEAD:qemu-transfer-20260804
