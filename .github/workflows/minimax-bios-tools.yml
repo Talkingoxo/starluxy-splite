@@ -1,0 +1,57 @@
+name: MiniMax BIOS ISO Tools
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/minimax-bios-tools.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Install ISO tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xorriso isolinux syslinux-common
+
+      - name: Package relocatable tools
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/bios-tools"
+          mkdir -p "$ROOT/bin" "$ROOT/lib" "$ROOT/isolinux"
+          cp -L /usr/bin/xorriso "$ROOT/bin/"
+          ldd /usr/bin/xorriso | awk '/=> \/|^\// {for (i=1;i<=NF;i++) if ($i ~ /^\//) print $i}' | sort -u | while read -r lib; do
+            [ -f "$lib" ] || continue
+            cp -L "$lib" "$ROOT/lib/"
+          done
+          cp -L /usr/lib/ISOLINUX/isolinux.bin "$ROOT/isolinux/"
+          cp -L /usr/lib/syslinux/modules/bios/ldlinux.c32 "$ROOT/isolinux/"
+          cat > "$ROOT/run-xorriso" <<'EOF'
+          #!/bin/sh
+          HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+          export LD_LIBRARY_PATH="$HERE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          exec "$HERE/bin/xorriso" "$@"
+          EOF
+          chmod +x "$ROOT/run-xorriso"
+          "$ROOT/run-xorriso" -version
+          test -s "$ROOT/isolinux/isolinux.bin"
+          test -s "$ROOT/isolinux/ldlinux.c32"
+          tar --zstd -cf minimax-bios-tools.tar.zst bios-tools
+          sha256sum minimax-bios-tools.tar.zst > minimax-bios-tools.tar.zst.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: minimax-bios-tools
+          path: |
+            minimax-bios-tools.tar.zst
+            minimax-bios-tools.tar.zst.sha256
+          if-no-files-found: error
+          retention-days: 1

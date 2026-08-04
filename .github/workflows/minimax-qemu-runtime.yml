@@ -1,0 +1,78 @@
+name: MiniMax Native QEMU Runtime
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/minimax-qemu-runtime.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-qemu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Install minimal QEMU runtime
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils ovmf seabios libslirp0
+
+      - name: Package relocatable runtime
+        run: |
+          set -euxo pipefail
+          ROOT="$GITHUB_WORKSPACE/qemu-runtime"
+          mkdir -p "$ROOT/usr/bin" "$ROOT/usr/lib/x86_64-linux-gnu" "$ROOT/usr/share"
+          cp -L /usr/bin/qemu-system-x86_64 "$ROOT/usr/bin/"
+          cp -L /usr/bin/qemu-img "$ROOT/usr/bin/"
+          cp -L /usr/bin/qemu-io "$ROOT/usr/bin/" || true
+          cp -L /usr/bin/qemu-nbd "$ROOT/usr/bin/" || true
+          copy_deps() {
+            local bin="$1"
+            ldd "$bin" | awk '/=> \/|^\// {for (i=1;i<=NF;i++) if ($i ~ /^\//) print $i}' | sort -u | while read -r lib; do
+              [ -f "$lib" ] || continue
+              mkdir -p "$ROOT$(dirname "$lib")"
+              cp -L "$lib" "$ROOT$lib"
+            done
+          }
+          copy_deps /usr/bin/qemu-system-x86_64
+          copy_deps /usr/bin/qemu-img
+          [ ! -x /usr/bin/qemu-io ] || copy_deps /usr/bin/qemu-io
+          [ ! -x /usr/bin/qemu-nbd ] || copy_deps /usr/bin/qemu-nbd
+          [ ! -d /usr/lib/x86_64-linux-gnu/qemu ] || cp -a /usr/lib/x86_64-linux-gnu/qemu "$ROOT/usr/lib/x86_64-linux-gnu/"
+          [ ! -d /usr/share/qemu ] || cp -a /usr/share/qemu "$ROOT/usr/share/"
+          [ ! -d /usr/share/seabios ] || cp -a /usr/share/seabios "$ROOT/usr/share/"
+          [ ! -d /usr/share/OVMF ] || cp -a /usr/share/OVMF "$ROOT/usr/share/"
+          cat > "$ROOT/run-qemu" <<'EOF'
+          #!/bin/sh
+          HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+          export LD_LIBRARY_PATH="$HERE/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export QEMU_AUDIO_DRV=none
+          exec "$HERE/usr/bin/qemu-system-x86_64" -L "$HERE/usr/share/qemu" "$@"
+          EOF
+          chmod +x "$ROOT/run-qemu"
+          cat > "$ROOT/run-qemu-img" <<'EOF'
+          #!/bin/sh
+          HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+          export LD_LIBRARY_PATH="$HERE/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          exec "$HERE/usr/bin/qemu-img" "$@"
+          EOF
+          chmod +x "$ROOT/run-qemu-img"
+          "$ROOT/run-qemu" --version
+          "$ROOT/run-qemu-img" --version
+          tar --zstd -cf qemu-runtime-linux-x86_64.tar.zst qemu-runtime
+          sha256sum qemu-runtime-linux-x86_64.tar.zst > qemu-runtime-linux-x86_64.tar.zst.sha256
+
+      - name: Upload QEMU artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-runtime-linux-x86_64
+          path: |
+            qemu-runtime-linux-x86_64.tar.zst
+            qemu-runtime-linux-x86_64.tar.zst.sha256
+          if-no-files-found: error
+          retention-days: 1
