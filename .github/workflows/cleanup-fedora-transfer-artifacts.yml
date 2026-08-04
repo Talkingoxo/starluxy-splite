@@ -1,0 +1,38 @@
+name: Clean Up Consumed Fedora Transfer Artifacts
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/cleanup-fedora-transfer-artifacts.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Delete locally consumed one-day artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for id in \
+            8904203477 \
+            8904997012 8904999749 8905002625 8905005470 8905006885 \
+            8905007456 8905007962
+          do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              -X DELETE \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$id")
+            case "$code" in
+              204|404) printf 'artifact %s cleanup HTTP %s\n' "$id" "$code" ;;
+              *) printf 'artifact %s cleanup failed HTTP %s\n' "$id" "$code" >&2; exit 1 ;;
+            esac
+          done
