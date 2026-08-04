@@ -1,0 +1,32 @@
+name: Clean Up Consumed LABWC Artifact
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/cleanup-consumed-labwc-artifact.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Delete consumed one-day LABWC artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -X DELETE \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/8878447290")
+          case "$code" in
+            204|404) printf 'artifact cleanup HTTP %s\n' "$code" ;;
+            *) printf 'artifact cleanup failed HTTP %s\n' "$code" >&2; exit 1 ;;
+          esac
