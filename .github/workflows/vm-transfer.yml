@@ -1,4 +1,4 @@
-name: Temporary VM artifact transfer
+name: Transfer official Debian 13 OpenSSH client
 
 on:
   pull_request:
@@ -12,47 +12,26 @@ jobs:
   transfer:
     runs-on: ubuntu-24.04
     steps:
-      - name: Reconstruct exact committed TinyCore ISO
+      - name: Download dependency-complete OpenSSH client package set
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p transfer/qemu-debs
-          BASE='https://testing-ff9x-git-tinycore-vm-bootstrap-alexs-projects-d77c3382.vercel.app/api/bootstrap-file'
-          META=$(curl -fsSL "$BASE?name=iso&meta=1")
-          SIZE=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["size"])' <<<"$META")
-          OUT=transfer/TinyCore-Modern-Pure64.iso
-          : > "$OUT"
-          CHUNK=$((2*1024*1024))
-          OFFSET=0
-          while [ "$OFFSET" -lt "$SIZE" ]; do
-            LENGTH=$CHUNK
-            if [ $((OFFSET + LENGTH)) -gt "$SIZE" ]; then LENGTH=$((SIZE - OFFSET)); fi
-            curl -fsSL "$BASE?name=iso&offset=$OFFSET&length=$LENGTH" | base64 -d >> "$OUT"
-            OFFSET=$((OFFSET + LENGTH))
-          done
-          test "$(stat -c %s "$OUT")" -eq "$SIZE"
-          echo '82db77b13dd13633a82fa600dc224957cd0a750fa948fe121c115fb438045dac  transfer/TinyCore-Modern-Pure64.iso' | sha256sum -c -
-          sha256sum "$OUT" > transfer/TinyCore-Modern-Pure64.iso.sha256
-
-      - name: Download complete Debian 13 QEMU package set
-        shell: bash
-        run: |
-          set -euxo pipefail
-          docker run --rm -v "$PWD/transfer/qemu-debs:/out" debian:trixie-slim bash -lc '
-            set -eux
+          mkdir -p transfer/openssh-debs
+          docker run --rm -v "$PWD/transfer/openssh-debs:/out" debian:trixie-slim bash -lc '
+            set -euxo pipefail
             apt-get update
-            apt-get install -y --no-install-recommends --download-only \
-              qemu-system-x86 qemu-utils qemu-system-common qemu-system-data \
-              seabios ipxe-qemu fdisk
+            apt-get install -y --no-install-recommends --download-only openssh-client
             cp -v /var/cache/apt/archives/*.deb /out/
           '
-          (cd transfer/qemu-debs && sha256sum *.deb > SHA256SUMS)
-          du -sh transfer transfer/qemu-debs
+          cd transfer/openssh-debs
+          sha256sum -- *.deb > SHA256SUMS
+          tar -czf ../debian13-openssh-client-offline-bundle.tar.gz .
 
-      - name: Upload VM transfer bundle
+      - name: Upload verified OpenSSH client bundle
         uses: actions/upload-artifact@v4
         with:
-          name: tinycore-qemu-offline-bundle
+          name: debian13-openssh-client-offline-bundle
           path: transfer/
           retention-days: 1
           compression-level: 0
+          if-no-files-found: error
