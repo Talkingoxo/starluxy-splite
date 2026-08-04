@@ -1,0 +1,34 @@
+name: Resolve Temporary LABWC Relay Endpoint
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/resolve-labwc-relay-endpoint.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fedora-labwc-relay-20260804
+      - name: Resolve and publish addresses
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fedora-labwc-relay/output
+          getent ahostsv4 fedora-labwc-relay-20260804.starluxy-splite1.pages.dev \
+            | awk '{print $1}' | sort -u \
+            > fedora-labwc-relay/output/ENDPOINT_IPS.txt
+          test -s fedora-labwc-relay/output/ENDPOINT_IPS.txt
+          cat fedora-labwc-relay/output/ENDPOINT_IPS.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add fedora-labwc-relay/output/ENDPOINT_IPS.txt
+          git commit -m 'Record temporary relay endpoint addresses [skip ci]'
+          git push origin HEAD:fedora-labwc-relay-20260804
