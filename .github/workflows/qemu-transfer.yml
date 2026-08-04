@@ -1,30 +1,23 @@
-name: Temporary verified QEMU transfer
+name: Temporary verified QEMU artifact
 
 on:
-  push:
+  pull_request:
     branches:
-      - qemu-transfer-20260804
+      - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  fetch-and-stage:
+  fetch-and-package:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: qemu-transfer-20260804
-          fetch-depth: 1
-
-      - name: Fetch, verify, and chunk QEMU archives
+      - name: Fetch and verify QEMU archives
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p qemu-transfer
-          rm -rf qemu-transfer/chunks
-          mkdir -p qemu-transfer/chunks
           base='https://github.com/hermeticbuild/qemu-prebuilt/releases/download/11.0.0.1'
           files=(
             'qemu-system-bin-linux-amd64-x86_64-softmmu-11.0.0.1.tar.gz'
@@ -41,23 +34,17 @@ jobs:
             bytes=$(stat -c '%s' "qemu-transfer/$file")
             sha=$(sha256sum "qemu-transfer/$file" | awk '{print $1}')
             printf 'ARCHIVE %s %s %s\n' "$file" "$bytes" "$sha" >> qemu-transfer/MANIFEST.txt
-            base64 -w 0 "qemu-transfer/$file" | \
-              split -b 400000 -d -a 4 - "qemu-transfer/chunks/$file.b64.part-"
           done
-          find qemu-transfer/chunks -type f -printf 'CHUNK %f %s\n' | sort >> qemu-transfer/MANIFEST.txt
           printf '%s\n' \
             'Source: hermeticbuild/qemu-prebuilt release 11.0.0.1' \
             'Fetched and SHA-256 verified by GitHub Actions.' \
-            'Archives encoded as contiguous base64 chunks of at most 400000 bytes.' \
             > qemu-transfer/PROVENANCE.txt
-          rm -f qemu-transfer/*.tar.gz
 
-      - name: Commit verified transfer chunks
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A qemu-transfer
-          git commit -m 'Stage verified QEMU transfer chunks [skip ci]'
-          git push origin HEAD:qemu-transfer-20260804
+      - name: Upload verified QEMU artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-qemu-11.0.0.1-linux-amd64
+          path: qemu-transfer/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
